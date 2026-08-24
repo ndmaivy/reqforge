@@ -2,7 +2,7 @@ services:
   - type: web
     name: reqforge-api
     runtime: docker
-    plan: starter
+    plan: free
     rootDir: backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
@@ -31,6 +31,6 @@ services:
 
 databases:
   - name: reqforge-db
-    plan: basic-256mb
+    plan: free
     databaseName: reqforge
     user: reqforge

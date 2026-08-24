@@ -1,10 +1,10 @@
 # ReqForge deployment on Render
 
-The repository includes a root `render.yaml` Blueprint for one Render PostgreSQL database, one Docker web service, and one static site. The backend container runs `alembic upgrade head` before starting FastAPI. This startup migration strategy assumes the current single backend instance.
+The repository includes a root `render.yaml` Blueprint for one free Render PostgreSQL database, one free Docker web service, and one static site. This configuration is intended for ReqForge demo/thesis hosting, not long-term production. The backend container runs `alembic upgrade head` before starting FastAPI. This startup migration strategy assumes the current single backend instance.
 
 ## Deploy with the Blueprint
 
-1. Push the repository to GitHub, then create a Render **Blueprint** from the repository's root `render.yaml`. Review Render's pricing before applying it: the Blueprint explicitly selects the lowest paid production baseline (`starter` web service and `basic-256mb` PostgreSQL). A free PostgreSQL instance expires after 30 days and is not suitable for production persistence.
+1. Push the repository to GitHub, then create a Render **Blueprint** from the repository's root `render.yaml`. The Blueprint explicitly selects the `free` plan for both the backend and PostgreSQL to support demo/thesis hosting without a paid baseline.
 2. Create the `reqforge-db` PostgreSQL resource from the Blueprint. Keep the database and backend in the same Render region so the generated internal `DATABASE_URL` can be used.
 3. When Render prompts for `CORS_ORIGINS`, enter the final frontend origin only, for example `https://reqforge-web.onrender.com`. Multiple origins must be comma-separated. Do not use `*`.
 4. When Render prompts for `VITE_API_BASE_URL`, enter the backend's public origin, for example `https://reqforge-api.onrender.com`, with no `/api/v1` suffix.
@@ -28,6 +28,12 @@ The repository includes a root `render.yaml` Blueprint for one Render PostgreSQL
 
 No SPA rewrite is configured because the current frontend does not use URL-based client routing.
 
+## Free tier limitations
+
+- The free backend can spin down while idle, so the first request after inactivity can have a cold-start delay.
+- Free PostgreSQL has storage, availability, backup, and lifetime limitations and is not suitable for long-term production persistence.
+- This deployment profile is intended for a demonstration or thesis environment. Move to paid services before using ReqForge as a long-running production system.
+
 ## Equivalent Render Dashboard settings
 
 Use these settings if the Blueprint is not used.
@@ -35,7 +41,7 @@ Use these settings if the Blueprint is not used.
 ### PostgreSQL
 
 - Create a Render PostgreSQL database named `reqforge-db`.
-- Instance Type: `basic-256mb` (or another paid production tier you select).
+- Instance Type: `free`
 - Use its **Internal Database URL** as the backend `DATABASE_URL`.
 - Place it in the same region as the backend.
 
@@ -43,7 +49,7 @@ Use these settings if the Blueprint is not used.
 
 - Root Directory: `backend`
 - Runtime: `Docker`
-- Instance Type: `starter` (or another paid production tier you select)
+- Instance Type: `free`
 - Dockerfile Path: `./Dockerfile`
 - Docker Build Context: `.`
 - Build Command: managed by the Dockerfile
