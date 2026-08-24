@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Search, Sparkles, CheckCircle, XCircle, Edit3, X, MessageSquare, TrendingUp, ChevronDown, FileText, Loader } from "lucide-react";
 import { toast } from "sonner";
 import type { NeedStatus, ConfidenceLevel, Requirement } from "../data/mockData";
 import type { UserNeedDetailDto, UserNeedUpdateRequest, UserNeedViewModel } from "../../types/userNeed";
+import { getErrorMessage } from "../../services/api";
 import { ConfirmDialog } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -28,9 +29,9 @@ interface NeedDetailProps {
   requirements: Requirement[];
   onClose: () => void;
   onRetryDetail: () => Promise<void>;
-  onConfirm: () => Promise<void>;
-  onReject: () => Promise<void>;
-  onSave: (title: string, description: string) => Promise<void>;
+  onConfirm: () => Promise<boolean>;
+  onReject: () => Promise<boolean>;
+  onSave: (title: string, description: string) => Promise<boolean>;
 }
 
 function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave }: NeedDetailProps) {
@@ -165,7 +166,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
       <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
         {editing ? (
           <div className="flex gap-2">
-            <button disabled={actionBusy} onClick={async () => { await onSave(editTitle, editDesc); setEditing(false); }} className="flex-1 py-2 rounded-md text-white text-center hover:opacity-90 disabled:opacity-60 transition-all" style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>{actionBusy ? "Saving..." : tr.userNeeds.save}</button>
+            <button disabled={actionBusy || !editTitle.trim() || !editDesc.trim()} onClick={async () => { if (await onSave(editTitle.trim(), editDesc.trim())) setEditing(false); }} className="flex-1 py-2 rounded-md text-white text-center hover:opacity-90 disabled:opacity-60 transition-all" style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>{actionBusy ? "Saving..." : tr.userNeeds.save}</button>
             <button onClick={() => { setEditing(false); setEditTitle(need.title); setEditDesc(need.description); }} className="px-3 py-2 rounded-md border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)", fontSize: "12.5px" }}>{tr.userNeeds.cancel}</button>
           </div>
         ) : (
@@ -193,7 +194,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
           message={`"${need.title}" — ${tr.userNeeds.rejectMsg}`}
           confirmLabel={tr.userNeeds.reject}
           confirmDanger
-          onConfirm={() => { void onReject().then(() => setRejectConfirm(false)); }}
+          onConfirm={() => { void onReject().then((succeeded) => { if (succeeded) setRejectConfirm(false); }); }}
           onCancel={() => setRejectConfirm(false)}
         />
       )}
@@ -202,18 +203,120 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
 }
 
 interface UserNeedsProps {
-  needs: UserNeed[];
-  feedback: FeedbackItem[];
+  needs: UserNeedViewModel[];
   requirements: Requirement[];
-  onUpdateNeed: (id: string, changes: Partial<UserNeed>) => void;
+  loading: boolean;
+  loadError: string | null;
+  onRetry: () => Promise<void>;
+  onLoadNeedDetail: (needId: string) => Promise<UserNeedDetailDto>;
+  onSaveNeed: (needId: string, payload: UserNeedUpdateRequest) => Promise<UserNeedViewModel>;
+  onConfirmNeed: (needId: string) => Promise<UserNeedViewModel>;
+  onRejectNeed: (needId: string) => Promise<UserNeedViewModel>;
 }
 
-export function UserNeeds({ needs, feedback, requirements, onUpdateNeed }: UserNeedsProps) {
+export function UserNeeds({
+  needs,
+  requirements,
+  loading,
+  loadError,
+  onRetry,
+  onLoadNeedDetail,
+  onSaveNeed,
+  onConfirmNeed,
+  onRejectNeed,
+}: UserNeedsProps) {
   const { tr } = useLanguage();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(tr.userNeeds.allStatuses);
   const [confFilter, setConfFilter] = useState(tr.userNeeds.allConfidence);
-  const [selected, setSelected] = useState<UserNeed | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<UserNeedDetailDto | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [actionNeedId, setActionNeedId] = useState<string | null>(null);
+  const detailRequestId = useRef(0);
+
+  const selected = selectedId ? needs.find((need) => need.id === selectedId) ?? null : null;
+
+  const loadDetail = async (needId: string): Promise<void> => {
+    const requestId = detailRequestId.current + 1;
+    detailRequestId.current = requestId;
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const loaded = await onLoadNeedDetail(needId);
+      if (detailRequestId.current === requestId) setDetail(loaded);
+    } catch (error) {
+      if (detailRequestId.current === requestId) {
+        setDetailError(getErrorMessage(error, "Unable to load User Need details."));
+      }
+    } finally {
+      if (detailRequestId.current === requestId) setDetailLoading(false);
+    }
+  };
+
+  const selectNeed = (needId: string): void => {
+    if (selectedId === needId) {
+      detailRequestId.current += 1;
+      setSelectedId(null);
+      setDetail(null);
+      setDetailError(null);
+      setDetailLoading(false);
+      return;
+    }
+    setSelectedId(needId);
+    setDetail(null);
+    void loadDetail(needId);
+  };
+
+  const confirm = async (needId: string): Promise<boolean> => {
+    if (actionNeedId) return false;
+    setActionNeedId(needId);
+    try {
+      await onConfirmNeed(needId);
+      setDetail((current) => current?.id === needId ? { ...current, status: "CONFIRMED" } : current);
+      toast.success("User Need confirmed");
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to confirm User Need."));
+      return false;
+    } finally {
+      setActionNeedId(null);
+    }
+  };
+
+  const reject = async (needId: string): Promise<boolean> => {
+    if (actionNeedId) return false;
+    setActionNeedId(needId);
+    try {
+      await onRejectNeed(needId);
+      setDetail((current) => current?.id === needId ? { ...current, status: "REJECTED" } : current);
+      setSelectedId(null);
+      toast.success("User Need rejected");
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to reject User Need."));
+      return false;
+    } finally {
+      setActionNeedId(null);
+    }
+  };
+
+  const save = async (needId: string, title: string, description: string): Promise<boolean> => {
+    if (actionNeedId) return false;
+    setActionNeedId(needId);
+    try {
+      await onSaveNeed(needId, { title, description });
+      setDetail((current) => current?.id === needId ? { ...current, title, description } : current);
+      toast.success("User Need saved");
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to save User Need."));
+      return false;
+    } finally {
+      setActionNeedId(null);
+    }
+  };
 
   const filtered = useMemo(() => {
     let list = needs;
@@ -272,7 +375,17 @@ export function UserNeeds({ needs, feedback, requirements, onUpdateNeed }: UserN
           </div>
 
           {/* Cards */}
-          {filtered.length === 0 ? (
+          {loadError && (
+            <div className="mb-3 flex items-center justify-between rounded-lg border px-4 py-3" style={{ background: "#FEF2F2", borderColor: "#FCA5A5" }}>
+              <span style={{ fontSize: "12.5px", color: "#B91C1C" }}>{loadError}</span>
+              <button onClick={() => void onRetry()} style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>Retry</button>
+            </div>
+          )}
+          {loading && needs.length === 0 ? (
+            <div className="flex items-center justify-center py-16 rounded-lg border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+              <Loader size={14} className="animate-spin" style={{ color: "#1E3A8A" }} />
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-lg border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
               <p style={{ fontSize: "14px", fontWeight: 500, color: "#64748B" }}>{tr.userNeeds.noNeeds}</p>
               <button onClick={() => { setSearch(""); setStatusFilter(tr.userNeeds.allStatuses); setConfFilter(tr.userNeeds.allConfidence); }} style={{ fontSize: "12.5px", color: "#1E3A8A", marginTop: "6px" }}>Clear filters</button>
@@ -282,12 +395,12 @@ export function UserNeeds({ needs, feedback, requirements, onUpdateNeed }: UserN
               {filtered.map((need) => {
                 const sc = statusCfg[need.status];
                 const cc = confCfg[need.confidence];
-                const isSelected = selected?.id === need.id;
-                const fbCount = need.feedbackIds.length;
+                const isSelected = selectedId === need.id;
+                const fbCount = need.evidenceCount;
                 const needReqs = requirements.filter((r) => r.sourceNeedId === need.id && r.status !== "Rejected");
                 const isCovered = needReqs.length > 0;
                 return (
-                  <div key={need.id} onClick={() => setSelected(isSelected ? null : need)}
+                  <div key={need.id} onClick={() => selectNeed(need.id)}
                     className="rounded-lg border p-4 cursor-pointer transition-all"
                     style={{ background: isSelected ? "#EFF6FF" : "var(--card)", borderColor: isSelected ? "#1E3A8A" : "var(--border)" }}
                     onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLDivElement).style.borderColor = "#BFDBFE"; }}
@@ -325,13 +438,13 @@ export function UserNeeds({ needs, feedback, requirements, onUpdateNeed }: UserN
                         {need.trend && <span style={{ fontSize: "11px", color: "#059669" }}>{need.trend}</span>}
                       </div>
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        {need.status !== "Confirmed" && (
-                          <button onClick={() => { onUpdateNeed(need.id, { status: "Confirmed" }); if (isSelected) setSelected({ ...need, status: "Confirmed" }); toast.success("User Need confirmed"); }}
-                            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
+                        {need.status === "Candidate" && (
+                          <button disabled={actionNeedId !== null} onClick={() => void confirm(need.id)}
+                            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
                             <CheckCircle size={10} /> {tr.userNeeds.confirm}
                           </button>
                         )}
-                        <button onClick={() => setSelected(isSelected ? null : need)} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 transition-colors" style={{ fontSize: "11px", color: "#64748B" }}>
+                        <button onClick={() => selectNeed(need.id)} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 transition-colors" style={{ fontSize: "11px", color: "#64748B" }}>
                           <Edit3 size={10} /> {tr.userNeeds.edit}
                         </button>
                       </div>
@@ -347,12 +460,16 @@ export function UserNeeds({ needs, feedback, requirements, onUpdateNeed }: UserN
       {selected && (
         <NeedDetail
           need={selected}
-          feedback={feedback}
+          detail={detail?.id === selected.id ? detail : null}
+          detailLoading={detailLoading}
+          detailError={detailError}
+          actionBusy={actionNeedId === selected.id}
           requirements={requirements}
-          onClose={() => setSelected(null)}
-          onConfirm={() => { onUpdateNeed(selected.id, { status: "Confirmed" }); setSelected({ ...selected, status: "Confirmed" }); toast.success("User Need confirmed"); }}
-          onReject={() => { onUpdateNeed(selected.id, { status: "Rejected" }); setSelected(null); toast.success("User Need rejected"); }}
-          onSave={(title, description) => { onUpdateNeed(selected.id, { title, description }); setSelected({ ...selected, title, description }); toast.success("User Need saved"); }}
+          onClose={() => { detailRequestId.current += 1; setSelectedId(null); setDetail(null); setDetailError(null); setDetailLoading(false); }}
+          onRetryDetail={() => loadDetail(selected.id)}
+          onConfirm={() => confirm(selected.id)}
+          onReject={() => reject(selected.id)}
+          onSave={(title, description) => save(selected.id, title, description)}
         />
       )}
     </div>

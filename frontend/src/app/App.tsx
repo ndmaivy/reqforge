@@ -1,4 +1,4 @@
-giimport { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast, Toaster } from "sonner";
 import { LanguageProvider } from "./i18n/LanguageContext";
 import { Sidebar, GlobalSidebar } from "./components/Sidebar";
@@ -15,7 +15,7 @@ import {
 } from "./data/mockData";
 import type {
   Project, Platform, FeedbackItem, FeedbackCategory, FeedbackSource,
-  UserNeed, Requirement, RequirementIssue,
+  Requirement, RequirementIssue,
 } from "./data/mockData";
 import type { CreateProjectFormData } from "./components/ProjectsPage";
 import { getErrorMessage } from "../services/api";
@@ -432,7 +432,6 @@ export default function App() {
           {activeScreen === "user-needs" && (
             <UserNeeds
               needs={projectNeeds}
-              feedback={projectFeedback}
               requirements={projectRequirements}
               loading={needsLoading}
               loadError={needsError}
