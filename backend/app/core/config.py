@@ -26,14 +26,29 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
     max_import_bytes: int = Field(default=5_000_000, ge=1_024, le=50_000_000)
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value: str) -> str:
+        """Use the installed psycopg v3 driver for Render-style PostgreSQL URLs."""
+        normalized = value.strip()
+        if normalized.startswith("postgres://"):
+            return normalized.replace("postgres://", "postgresql+psycopg://", 1)
+        if normalized.startswith("postgresql://"):
+            return normalized.replace("postgresql://", "postgresql+psycopg://", 1)
+        return normalized
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_origins(cls, value: str | list[str] | None) -> list[str]:
         if value is None or value == "":
             return []
         if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+            origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        else:
+            origins = [origin.strip() for origin in value if origin.strip()]
+        if "*" in origins:
+            raise ValueError("CORS_ORIGINS cannot contain '*' while credentials are enabled")
+        return origins
 
 
 @lru_cache

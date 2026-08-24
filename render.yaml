@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: reqforge-api
+    runtime: docker
+    plan: starter
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /ready
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: reqforge-db
+          property: connectionString
+      - key: CORS_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        value: stub
+
+  - type: web
+    name: reqforge-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        sync: false
+
+databases:
+  - name: reqforge-db
+    plan: basic-256mb
+    databaseName: reqforge
+    user: reqforge

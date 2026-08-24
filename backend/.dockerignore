@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+.coverage
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+tests/
+reqforge_backend.egg-info/

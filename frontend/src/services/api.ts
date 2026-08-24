@@ -1,6 +1,14 @@
 /// <reference types="vite/client" />
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/+$/, "");
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+
+if (!configuredApiBaseUrl) {
+  throw new Error(
+    "VITE_API_BASE_URL is required. Set it to the public ReqForge API origin before starting the frontend.",
+  );
+}
+
+const API_BASE_URL = configuredApiBaseUrl.replace(/\/+$/, "");
 
 export interface DataResponse<T> {
   data: T;
