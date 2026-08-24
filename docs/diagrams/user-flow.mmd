@@ -1,0 +1,26 @@
+flowchart TD
+    A[Tạo Project]
+    B[Nhập thông tin Project]
+    C[Nhập Feedback]
+    D[Xem và quản lý Feedback]
+    E[AI phân tích Feedback]
+    F[Tạo Candidate User Needs]
+    G[Người dùng review User Needs]
+    H{Xác nhận User Need?}
+    I[Chỉnh sửa / Từ chối]
+    J[AI sinh Candidate Requirements]
+    K[AI kiểm tra Requirements]
+    L{Có vấn đề?}
+    M[Xem Issues và Source Evidence]
+    N[Chỉnh sửa Requirement]
+    O[Review Requirement]
+    P{Xác nhận Requirement?}
+    Q[Approved Requirements]
+
+    A --> B --> C --> D --> E --> F --> G --> H
+    H -->|Không| I --> G
+    H -->|Có| J --> K --> L
+    L -->|Có| M --> N --> K
+    L -->|Không| O --> P
+    P -->|Chỉnh sửa| N
+    P -->|Xác nhận| Q

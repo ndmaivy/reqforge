@@ -1,0 +1,34 @@
+flowchart TD
+    U[Người dùng]
+    FE[Frontend<br/>Next.js + TypeScript]
+    API[REST API]
+    BE[Backend Application<br/>FastAPI + Python]
+
+    PM[Project Module]
+    FM[Feedback Module]
+    NM[User Need Module]
+    RM[Requirement Module]
+    AM[Analysis Module]
+    AIS[AI Service]
+
+    DB[(PostgreSQL)]
+    LLM[External LLM API]
+
+    U --> FE
+    FE --> API
+    API --> BE
+
+    BE --> PM
+    BE --> FM
+    BE --> NM
+    BE --> RM
+    BE --> AM
+
+    PM --> DB
+    FM --> DB
+    NM --> DB
+    RM --> DB
+    AM --> DB
+
+    AM --> AIS
+    AIS --> LLM

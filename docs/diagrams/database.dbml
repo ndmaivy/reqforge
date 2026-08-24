@@ -1,0 +1,195 @@
+Enum feedback_status {
+  NEW
+  ANALYZED
+  ARCHIVED
+}
+
+Enum user_need_status {
+  CANDIDATE
+  CONFIRMED
+  REJECTED
+}
+
+Enum requirement_status {
+  DRAFT
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+  ARCHIVED
+}
+
+Enum generated_by_type {
+  AI
+  HUMAN
+}
+
+Enum requirement_type {
+  FUNCTIONAL
+  USABILITY
+  INTERACTION
+  ACCESSIBILITY
+  NON_FUNCTIONAL
+}
+
+Enum requirement_issue_type {
+  MISSING_INFORMATION
+  AMBIGUITY
+  CONFLICT
+  DUPLICATE
+  UNSUPPORTED_ASSUMPTION
+  INTENT_DRIFT
+  FEEDBACK_INCONSISTENCY
+}
+
+Enum issue_severity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+Enum issue_status {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+Enum analysis_type {
+  FEEDBACK_ANALYSIS
+  NEED_EXTRACTION
+  REQUIREMENT_GENERATION
+  REQUIREMENT_VALIDATION
+  CONSISTENCY_CHECK
+}
+
+Enum analysis_status {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+Table projects {
+  id uuid [pk]
+  name varchar(255) [not null]
+  description text
+  goal text
+  target_users text
+  platform varchar(100)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table feedback {
+  id uuid [pk]
+  project_id uuid [not null, ref: > projects.id]
+  content text [not null]
+  source varchar(255)
+  feedback_date timestamp
+  category varchar(100)
+  is_noise boolean [not null, default: false]
+  status feedback_status [not null, default: 'NEW']
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    project_id
+    status
+    category
+  }
+}
+
+Table user_needs {
+  id uuid [pk]
+  project_id uuid [not null, ref: > projects.id]
+  title varchar(255) [not null]
+  description text [not null]
+  status user_need_status [not null, default: 'CANDIDATE']
+  confidence decimal(5,4)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    project_id
+    status
+  }
+}
+
+Table feedback_need_links {
+  feedback_id uuid [not null, ref: > feedback.id]
+  need_id uuid [not null, ref: > user_needs.id]
+  relevance_score decimal(5,4)
+  created_at timestamp [not null]
+
+  indexes {
+    (feedback_id, need_id) [pk]
+    need_id
+  }
+}
+
+Table requirements {
+  id uuid [pk]
+  project_id uuid [not null, ref: > projects.id]
+  title varchar(255) [not null]
+  description text [not null]
+  type requirement_type [not null]
+  status requirement_status [not null, default: 'DRAFT']
+  generated_by generated_by_type [not null]
+  confidence decimal(5,4)
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    project_id
+    status
+    type
+  }
+}
+
+Table need_requirement_links {
+  need_id uuid [not null, ref: > user_needs.id]
+  requirement_id uuid [not null, ref: > requirements.id]
+  created_at timestamp [not null]
+
+  indexes {
+    (need_id, requirement_id) [pk]
+    requirement_id
+  }
+}
+
+Table requirement_issues {
+  id uuid [pk]
+  requirement_id uuid [not null, ref: > requirements.id]
+  issue_type requirement_issue_type [not null]
+  severity issue_severity [not null]
+  description text [not null]
+  evidence text
+  suggestion text
+  confidence decimal(5,4)
+  status issue_status [not null, default: 'OPEN']
+  created_at timestamp [not null]
+
+  indexes {
+    requirement_id
+    issue_type
+    status
+  }
+}
+
+Table analysis_runs {
+  id uuid [pk]
+  project_id uuid [not null, ref: > projects.id]
+  analysis_type analysis_type [not null]
+  model varchar(255)
+  input_snapshot jsonb
+  output_json jsonb
+  status analysis_status [not null, default: 'PENDING']
+  error_message text
+  created_at timestamp [not null]
+  completed_at timestamp
+
+  indexes {
+    project_id
+    analysis_type
+    status
+  }
+}

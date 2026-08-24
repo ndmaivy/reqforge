@@ -1,0 +1,73 @@
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class FeedbackStatus(StrEnum):
+    NEW = "NEW"
+    ANALYZED = "ANALYZED"
+    ARCHIVED = "ARCHIVED"
+
+
+class UserNeedStatus(StrEnum):
+    CANDIDATE = "CANDIDATE"
+    CONFIRMED = "CONFIRMED"
+    REJECTED = "REJECTED"
+
+
+class RequirementStatus(StrEnum):
+    DRAFT = "DRAFT"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    ARCHIVED = "ARCHIVED"
+
+
+class GeneratedByType(StrEnum):
+    AI = "AI"
+    HUMAN = "HUMAN"
+
+
+class RequirementType(StrEnum):
+    FUNCTIONAL = "FUNCTIONAL"
+    USABILITY = "USABILITY"
+    INTERACTION = "INTERACTION"
+    ACCESSIBILITY = "ACCESSIBILITY"
+    NON_FUNCTIONAL = "NON_FUNCTIONAL"
+
+
+class RequirementIssueType(StrEnum):
+    MISSING_INFORMATION = "MISSING_INFORMATION"
+    AMBIGUITY = "AMBIGUITY"
+    CONFLICT = "CONFLICT"
+    DUPLICATE = "DUPLICATE"
+    UNSUPPORTED_ASSUMPTION = "UNSUPPORTED_ASSUMPTION"
+    INTENT_DRIFT = "INTENT_DRIFT"
+    FEEDBACK_INCONSISTENCY = "FEEDBACK_INCONSISTENCY"
+
+
+class IssueSeverity(StrEnum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class IssueStatus(StrEnum):
+    OPEN = "OPEN"
+    RESOLVED = "RESOLVED"
+    DISMISSED = "DISMISSED"
+
+
+class AnalysisType(StrEnum):
+    FEEDBACK_ANALYSIS = "FEEDBACK_ANALYSIS"
+    NEED_EXTRACTION = "NEED_EXTRACTION"
+    REQUIREMENT_GENERATION = "REQUIREMENT_GENERATION"
+    REQUIREMENT_VALIDATION = "REQUIREMENT_VALIDATION"
+    CONSISTENCY_CHECK = "CONSISTENCY_CHECK"
+
+
+class AnalysisStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
