@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, Sparkles, AlertTriangle, CheckCircle, X, ChevronRight, Edit2, Loader, Info, ExternalLink, ChevronDown, Plus, Shield, FileText, BookOpen } from "lucide-react";
 import { toast } from "sonner";
-import type { Requirement, RequirementStatus, RequirementType, RequirementSourceType, FeedbackItem, RequirementIssue, ConfidenceLevel } from "../data/mockData";
+import type { RequirementStatus, RequirementType, RequirementSourceType, FeedbackItem } from "../data/mockData";
 import type { AnalysisRunDto } from "../../types/analysis";
 import type {
   RequirementCreateRequest,
+  RequirementIssueDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
   RequirementViewModel,
@@ -56,9 +57,6 @@ const REQ_SOURCE_OPTIONS: { value: RequirementSourceType; label: string }[] = [
   { value: "OTHER", label: "Other" },
 ];
 
-const confColor: Record<ConfidenceLevel, string> = { High: "#059669", Medium: "#D97706", Low: "#DC2626" };
-const confPct: Record<ConfidenceLevel, number> = { High: 91, Medium: 68, Low: 42 };
-
 function toRequirementTypeDto(type: RequirementType): RequirementTypeDto {
   if (type === "Usability") return "USABILITY";
   if (type === "Interaction") return "INTERACTION";
@@ -81,178 +79,37 @@ interface ReqDetailProps {
   req: RequirementViewModel;
   needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
-  issues: RequirementIssue[];
+  validationIssues: RequirementIssueDto[];
+  issuesLoading: boolean;
+  issuesError: string | null;
   actionBusy: boolean;
   onBack: () => void;
   onUpdate: (changes: RequirementUpdateRequest) => Promise<boolean>;
   onApprove: () => Promise<boolean>;
   onReject: () => Promise<boolean>;
-  onUpdateIssue: (id: string, changes: Partial<RequirementIssue>) => void;
+  onRetryIssues: () => Promise<void>;
+  onValidate: (signal: AbortSignal) => Promise<AnalysisRunDto>;
 }
 
 // ─── AI Validation types ───────────────────────────────────────────────────────
-type ValidationStatus = "idle" | "running" | "complete" | "outdated";
-type IssueSeverity = "High" | "Medium" | "Low";
-interface ValidationIssue {
-  id: string;
-  type: string;
-  typeEn: string;
-  severity: IssueSeverity;
-  problematicText?: string;
-  reason: string;
-  details?: string[];
-  suggestion: string;
-  resolved?: boolean;
-  isNew?: boolean;
-}
-interface ValidationResult {
-  intentPreservation: { status: "Tốt" | "Cần xem xét"; text: string };
-  issues: ValidationIssue[];
-  evidenceStrength: { level: "Cao" | "Trung bình" | "Thấp"; reasons: string[] };
-  reviewPriority: { level: "Cao" | "Trung bình" | "Thấp"; reason: string };
-  timestamp: string;
-  runCount: number;
-  prevIssueCount?: number;
-  resolvedCount?: number;
-  newCount?: number;
-}
-
-const MISSING_INFO_ISSUE: ValidationIssue = {
-  id: "v-missinginfo",
-  type: "MISSING INFORMATION",
-  typeEn: "MISSING INFORMATION",
-  severity: "Medium",
-  details: [
-    "Retention duration of saved progress",
-    "Whether auto-save applies to all registration steps",
-    "Expected behavior when saving fails",
-  ],
-  reason: "The requirement does not define the constraints needed for implementation.",
-  suggestion: "Clarify retention duration, affected form steps and behavior when auto-save fails.",
-};
-
-function buildValidationResult(
-  reqId: string,
-  description: string,
-  prevResult: ValidationResult | null,
-): ValidationResult {
-  if (reqId === "REQ-004") {
-    const has30sec = description.includes("30 seconds");
-    if (has30sec) {
-      return {
-        intentPreservation: {
-          status: "Tốt",
-          text: "The requirement addresses the core user intent of preventing registration progress loss.",
-        },
-        issues: [
-          {
-            id: "v-unassumption",
-            type: "UNSUPPORTED ASSUMPTION",
-            typeEn: "UNSUPPORTED ASSUMPTION",
-            severity: "High",
-            problematicText: '"every 30 seconds"',
-            reason:
-              "No supporting source feedback specifies a 30-second auto-save interval.",
-            suggestion:
-              "Remove the fixed interval or confirm the expected auto-save frequency with stakeholders.",
-          },
-          { ...MISSING_INFO_ISSUE },
-        ],
-        evidenceStrength: {
-          level: "Cao",
-          reasons: [
-            "2 supporting feedback records",
-            "Both consistently indicate progress-loss problems",
-            "Source User Need is confirmed",
-          ],
-        },
-        reviewPriority: {
-          level: "Trung bình",
-          reason: "1 unresolved High-severity issue requires human confirmation.",
-        },
-        timestamp: "Just now",
-        runCount: 1,
-      };
-    } else {
-      return {
-        intentPreservation: {
-          status: "Tốt",
-          text: "The requirement addresses the core user intent of preventing registration progress loss.",
-        },
-        issues: [{ ...MISSING_INFO_ISSUE, resolved: false }],
-        evidenceStrength: {
-          level: "Cao",
-          reasons: [
-            "2 supporting feedback records",
-            "Both consistently indicate progress-loss problems",
-            "Source User Need is confirmed",
-          ],
-        },
-        reviewPriority: {
-          level: "Trung bình",
-          reason: "1 unresolved Medium-severity issue requires clarification.",
-        },
-        timestamp: "Just now",
-        runCount: (prevResult?.runCount ?? 0) + 1,
-        prevIssueCount: 2,
-        resolvedCount: 1,
-        newCount: 0,
-      };
-    }
-  }
-  return {
-    intentPreservation: {
-      status: "Tốt",
-      text: "The requirement preserves the core user intent from source feedback.",
-    },
-    issues: [],
-    evidenceStrength: {
-      level: "Cao",
-      reasons: ["Supported by confirmed User Need", "Consistent with source feedback"],
-    },
-    reviewPriority: { level: "Thấp", reason: "No unresolved issues." },
-    timestamp: "Just now",
-    runCount: (prevResult?.runCount ?? 0) + 1,
-  };
-}
-
-function buildManualValidationResult(req: Requirement, prevResult: ValidationResult | null): ValidationResult {
-  const issues: ValidationIssue[] = [];
-  const words = req.description.split(" ").filter(Boolean);
-  if (words.length < 8) {
-    issues.push({
-      id: "mv-short", type: "MISSING INFORMATION", typeEn: "MISSING INFORMATION", severity: "Medium",
-      reason: "The requirement description is too brief to be unambiguous or implementable.",
-      suggestion: "Expand the description to include the expected behavior, actors, constraints, and measurable acceptance criteria.",
-    });
-  }
-  if (/\b(some|sometimes|often|generally|usually|appropriate|reasonable|as needed)\b/i.test(req.description)) {
-    issues.push({
-      id: "mv-ambiguous", type: "AMBIGUITY", typeEn: "AMBIGUITY", severity: "Medium",
-      reason: "The requirement contains vague qualifiers that are open to interpretation.",
-      suggestion: "Replace ambiguous terms with specific, measurable criteria.",
-    });
-  }
-  return {
-    intentPreservation: { status: "Tốt", text: "" },
-    issues,
-    evidenceStrength: {
-      level: req.sourceReference ? "Cao" : "Trung bình",
-      reasons: req.sourceReference
-        ? [`Source reference provided: ${req.sourceReference}`, "Requirement can be traced to external source"]
-        : ["No source reference attached", "Traceability may be difficult to verify"],
-    },
-    reviewPriority: {
-      level: issues.some((i) => i.severity === "High") ? "Cao" : issues.length > 0 ? "Trung bình" : "Thấp",
-      reason: issues.length === 0 ? "No issues detected." : `${issues.length} issue(s) found that may affect clarity or traceability.`,
-    },
-    timestamp: "Just now",
-    runCount: (prevResult?.runCount ?? 0) + 1,
-  };
-}
+type ValidationStatus = "idle" | "running" | "complete" | "outdated" | "error";
 
 // ─── ReqDetail component ───────────────────────────────────────────────────────
-function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate, onApprove, onReject, onUpdateIssue }: ReqDetailProps) {
+function ReqDetail({
+  req,
+  needs,
+  feedback,
+  validationIssues,
+  issuesLoading,
+  issuesError,
+  actionBusy,
+  onBack,
+  onUpdate,
+  onApprove,
+  onReject,
+  onRetryIssues,
+  onValidate,
+}: ReqDetailProps) {
   const { tr } = useLanguage();
 
   // Edit state
@@ -262,9 +119,20 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
   const [editType, setEditType] = useState<RequirementType>(req.type);
 
   // AI Validation state
-  const [validationStatus, setValidationStatus] = useState<ValidationStatus>("idle");
-  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [validationStatus, setValidationStatus] = useState<ValidationStatus>(
+    req.latestValidationRunId ? (req.validationOutdated ? "outdated" : "complete") : "idle",
+  );
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
+  const validationControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    setValidationStatus(
+      req.latestValidationRunId ? (req.validationOutdated ? "outdated" : "complete") : "idle",
+    );
+  }, [req.id, req.latestValidationRunId, req.validationOutdated]);
+
+  useEffect(() => () => validationControllerRef.current?.abort(), []);
 
   // Modal state
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
@@ -276,11 +144,10 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
   const sc = statusCfg[req.status];
   const tc = typeCfg[req.type];
   const sourceNeed = needs.find((n) => n.id === req.sourceNeedId);
-  const reqIssues = issues.filter((i) => i.requirementId === req.id);
   const supportingFb = feedback.filter((f) => sourceNeed?.feedbackIds.includes(f.id)).slice(0, 3);
-  const openHighIssues = (validationResult?.issues ?? []).filter((i) => i.severity === "High" && !i.resolved);
-  const openIssueCount = (validationResult?.issues ?? []).filter((i) => !i.resolved).length;
-  const issueCount = validationResult?.issues.length ?? 0;
+  const openHighIssues = validationIssues.filter((issue) => issue.severity === "HIGH" && issue.status === "OPEN");
+  const openIssueCount = validationIssues.filter((issue) => issue.status === "OPEN").length;
+  const issueCount = validationIssues.length;
 
   const rejectReasons = [
     "Incorrect interpretation",
@@ -292,22 +159,28 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
   ];
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
-  const handleRunValidation = () => {
+  const handleRunValidation = async () => {
+    if (validationStatus === "running") return;
+    const controller = new AbortController();
+    validationControllerRef.current = controller;
     setValidationStatus("running");
-    setTimeout(() => {
-      const isAI = req.sourceType === "AI_FROM_USER_NEED" || !req.sourceType;
-      const result = isAI
-        ? buildValidationResult(req.id, req.description, validationResult)
-        : buildManualValidationResult(req, validationResult);
-      setValidationResult(result);
-      setValidationStatus("complete");
-      if (validationResult && result.issues.length === validationResult.issues.length &&
-          result.resolvedCount === undefined && validationResult.resolvedCount === undefined) {
-        toast.success("Validation completed — no changes detected");
-      } else {
-        toast.success("AI validation completed");
+    setValidationError(null);
+    try {
+      const run = await onValidate(controller.signal);
+      if (run.status !== "COMPLETED") {
+        throw new Error(run.error_message || "Requirement validation failed.");
       }
-    }, 2000);
+      setValidationStatus("complete");
+      toast.success("AI validation completed");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      const message = getErrorMessage(error, "Requirement validation failed.");
+      setValidationError(message);
+      setValidationStatus("error");
+      toast.error(message);
+    } finally {
+      validationControllerRef.current = null;
+    }
   };
 
   const handleSave = async () => {
@@ -623,8 +496,7 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                     </div>
                   )}
 
-                  {validationResult &&
-                  (validationStatus === "complete" || validationStatus === "outdated") ? (
+                  {validationStatus === "complete" || validationStatus === "outdated" || validationStatus === "error" ? (
                     <>
                       {/* Section A — Validation Summary */}
                       <div
@@ -645,24 +517,19 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                         </p>
                         <div className="flex items-center justify-between">
                           <p style={{ fontSize: "13px", fontWeight: 600, color: "#1E3A8A" }}>
-                            {validationResult.resolvedCount !== undefined
-                              ? tr.requirements.validationUpdated
-                              : tr.requirements.validationComplete}
+                            {validationStatus === "error" ? "Validation failed" : tr.requirements.validationComplete}
                           </p>
-                          <span style={{ fontSize: "11px", color: "#93C5FD" }}>
-                            {validationResult.timestamp}
-                          </span>
                         </div>
                         <p style={{ fontSize: "12px", color: "#1E3A8A", marginTop: "4px" }}>
-                          {validationResult.resolvedCount !== undefined
-                            ? `${validationResult.resolvedCount} resolved · ${openIssueCount} remaining`
+                          {validationStatus === "error"
+                            ? validationError
                             : issueCount === 0
-                            ? tr.requirements.noIssuesFound
-                            : `${issueCount} issue${issueCount !== 1 ? "s" : ""} detected — ${
-                                validationResult.issues.filter((i) => i.severity === "High").length
-                              } High, ${
-                                validationResult.issues.filter((i) => i.severity === "Medium").length
-                              } Medium`}
+                              ? tr.requirements.noIssuesFound
+                              : `${issueCount} issue${issueCount !== 1 ? "s" : ""} detected — ${
+                                  validationIssues.filter((issue) => issue.severity === "HIGH").length
+                                } High, ${
+                                  validationIssues.filter((issue) => issue.severity === "MEDIUM").length
+                                } Medium`}
                         </p>
                       </div>
 
@@ -718,33 +585,6 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                         </div>
                       )}
 
-                      {/* Section C — Intent Preservation (AI requirements only) */}
-                      {(req.sourceType === "AI_FROM_USER_NEED" || !req.sourceType) && (
-                      <div
-                        className="rounded-lg p-4"
-                        style={{
-                          background: validationResult.intentPreservation.status === "Tốt" ? "#F0FDF4" : "#FFFBEB",
-                          border: `1px solid ${validationResult.intentPreservation.status === "Tốt" ? "#BBF7D0" : "#FDE68A"}`,
-                        }}
-                      >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                            {tr.requirements.intentPreservationLabel}
-                          </p>
-                          <span className="px-2 py-0.5 rounded-md" style={{
-                            background: validationResult.intentPreservation.status === "Tốt" ? "#DCFCE7" : "#FEF3C7",
-                            color: validationResult.intentPreservation.status === "Tốt" ? "#059669" : "#D97706",
-                            fontSize: "11px", fontWeight: 600,
-                          }}>
-                            {validationResult.intentPreservation.status === "Tốt" ? "Good" : "Needs Review"}
-                          </span>
-                        </div>
-                        <p style={{ fontSize: "12.5px", color: validationResult.intentPreservation.status === "Tốt" ? "#15803D" : "#92400E", lineHeight: 1.5 }}>
-                          {validationResult.intentPreservation.text}
-                        </p>
-                      </div>
-                      )}
-
                       {/* Section D — Validation Findings */}
                       <div>
                         <div className="flex items-center gap-2 mb-2.5">
@@ -778,7 +618,17 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                           )}
                         </div>
 
-                        {issueCount === 0 ? (
+                        {issuesLoading ? (
+                          <div className="flex items-center gap-2 rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
+                            <Loader size={13} className="animate-spin" style={{ color: "#1E3A8A" }} />
+                            <span style={{ fontSize: "12.5px", color: "#64748B" }}>Loading validation issues...</span>
+                          </div>
+                        ) : issuesError ? (
+                          <div className="rounded-lg border p-4" style={{ background: "#FEF2F2", borderColor: "#FCA5A5" }}>
+                            <p style={{ fontSize: "12.5px", color: "#B91C1C" }}>{issuesError}</p>
+                            <button onClick={() => void onRetryIssues()} style={{ fontSize: "12px", color: "#1E3A8A", marginTop: "5px" }}>Retry</button>
+                          </div>
+                        ) : issueCount === 0 ? (
                           <div
                             className="rounded-lg p-4"
                             style={{ background: "#F0FDF4", border: "1px solid #BBF7D0" }}
@@ -792,29 +642,30 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {validationResult.issues.map((issue) => {
+                            {validationIssues.map((issue) => {
                               const ss =
-                                issue.severity === "High"
+                                issue.severity === "HIGH"
                                   ? { bg: "#FEF2F2", color: "#DC2626" }
-                                  : issue.severity === "Medium"
+                                  : issue.severity === "MEDIUM"
                                   ? { bg: "#FEF3C7", color: "#D97706" }
                                   : { bg: "#EFF6FF", color: "#1E3A8A" };
                               const expanded = expandedIssues.has(issue.id);
-                              const hasMore = !!(issue.details?.length || issue.suggestion);
-                              const borderColor = issue.resolved
+                              const hasMore = !!(issue.suggestion || issue.confidence !== null);
+                              const isClosed = issue.status !== "OPEN";
+                              const borderColor = isClosed
                                 ? "#E2E8F0"
-                                : issue.severity === "High"
+                                : issue.severity === "HIGH"
                                 ? "#FCA5A5"
                                 : "#FDE68A";
-                              const severityLabel = issue.severity;
+                              const severityLabel = issue.severity.charAt(0) + issue.severity.slice(1).toLowerCase();
                               return (
                                 <div
                                   key={issue.id}
                                   className="rounded-lg p-3.5"
                                   style={{
-                                    background: issue.resolved ? "#F8FAFC" : "#FFF",
+                                    background: isClosed ? "#F8FAFC" : "#FFF",
                                     border: `1px solid ${borderColor}`,
-                                    opacity: issue.resolved ? 0.8 : 1,
+                                    opacity: isClosed ? 0.8 : 1,
                                   }}
                                 >
                                   <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -838,9 +689,9 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                                         letterSpacing: "0.03em",
                                       }}
                                     >
-                                      {issue.type}
+                                      {issue.issue_type.replace(/_/g, " ")}
                                     </span>
-                                    {issue.resolved && (
+                                    {isClosed && (
                                       <span
                                         className="ml-auto flex-shrink-0 px-2 py-0.5 rounded-full"
                                         style={{
@@ -850,36 +701,30 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                                           fontWeight: 600,
                                         }}
                                       >
-                                        {tr.requirements.resolvedBadge}
+                                        {issue.status === "RESOLVED" ? tr.requirements.resolvedBadge : "Dismissed"}
                                       </span>
                                     )}
                                   </div>
 
-                                  {issue.problematicText && (
+                                  {issue.evidence && (
                                     <div
-                                      className="inline-block rounded px-2 py-1 mb-2"
-                                      style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}
+                                      className="rounded px-2 py-1 mb-2"
+                                      style={{ background: "#F8FAFC", border: "1px solid var(--border)" }}
                                     >
-                                      <code
-                                        style={{
-                                          fontSize: "12px",
-                                          color: "#DC2626",
-                                          fontFamily: "var(--font-mono)",
-                                        }}
-                                      >
-                                        {issue.problematicText}
-                                      </code>
+                                      <p style={{ fontSize: "12px", color: "#64748B", lineHeight: 1.5 }}>
+                                        {issue.evidence}
+                                      </p>
                                     </div>
                                   )}
 
                                   <p
                                     style={{
                                       fontSize: "12.5px",
-                                      color: issue.resolved ? "#64748B" : "#1E293B",
+                                      color: isClosed ? "#64748B" : "#1E293B",
                                       lineHeight: 1.55,
                                     }}
                                   >
-                                    {issue.reason}
+                                    {issue.description}
                                   </p>
 
                                   {hasMore && (
@@ -901,21 +746,6 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
 
                                   {expanded && (
                                     <div className="mt-2 space-y-2">
-                                      {issue.details && (
-                                        <ul
-                                          className="pl-3 space-y-1"
-                                          style={{ borderLeft: "2px solid #E2E8F0" }}
-                                        >
-                                          {issue.details.map((d, idx) => (
-                                            <li
-                                              key={idx}
-                                              style={{ fontSize: "12px", color: "#475569", lineHeight: 1.5 }}
-                                            >
-                                              · {d}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      )}
                                       {issue.suggestion && (
                                         <p
                                           style={{
@@ -928,6 +758,11 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                                           {issue.suggestion}
                                         </p>
                                       )}
+                                      {issue.confidence !== null && (
+                                        <p style={{ fontSize: "11.5px", color: "#64748B" }}>
+                                          Confidence: {Math.round(Number(issue.confidence) * 100)}%
+                                        </p>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -937,115 +772,6 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                         )}
                       </div>
 
-                      {/* Section E — Evidence Strength */}
-                      {(() => {
-                        const { level, reasons } = validationResult.evidenceStrength;
-                        const evLabel = level === "Cao" ? "High" : level === "Trung bình" ? "Medium" : "Low";
-                        const evBg =
-                          level === "Cao" ? "#DCFCE7" : level === "Trung bình" ? "#FEF3C7" : "#FEF2F2";
-                        const evColor =
-                          level === "Cao" ? "#059669" : level === "Trung bình" ? "#D97706" : "#DC2626";
-                        const evPct = level === "Cao" ? 90 : level === "Trung bình" ? 60 : 35;
-                        return (
-                          <div
-                            className="rounded-lg p-4"
-                            style={{ background: "#F8FAFC", border: "1px solid var(--border)" }}
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <p
-                                style={{
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  color: "#94A3B8",
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.06em",
-                                }}
-                              >
-                                {tr.requirements.evidenceStrengthLabel}
-                              </p>
-                              <span
-                                className="px-2 py-0.5 rounded-md"
-                                style={{
-                                  background: evBg,
-                                  color: evColor,
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {evLabel}
-                              </span>
-                            </div>
-                            <div
-                              className="h-1.5 rounded-full mb-3"
-                              style={{ background: "#E2E8F0" }}
-                            >
-                              <div
-                                className="h-full rounded-full"
-                                style={{ width: `${evPct}%`, background: evColor }}
-                              />
-                            </div>
-                            <ul className="space-y-1">
-                              {reasons.map((r, i) => (
-                                <li
-                                  key={i}
-                                  className="flex items-center gap-2"
-                                  style={{ fontSize: "12px", color: "#475569" }}
-                                >
-                                  <div
-                                    className="w-1 h-1 rounded-full flex-shrink-0"
-                                    style={{ background: evColor }}
-                                  />
-                                  {r}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Section F — Review Priority */}
-                      {(() => {
-                        const { level, reason } = validationResult.reviewPriority;
-                        const prioLabel = level === "Cao" ? "High" : level === "Trung bình" ? "Medium" : "Low";
-                        const prioBg =
-                          level === "Cao" ? "#FEF2F2" : level === "Trung bình" ? "#FEF3C7" : "#DCFCE7";
-                        const prioColor =
-                          level === "Cao" ? "#DC2626" : level === "Trung bình" ? "#D97706" : "#059669";
-                        return (
-                          <div
-                            className="rounded-lg p-4"
-                            style={{ background: "#F8FAFC", border: "1px solid var(--border)" }}
-                          >
-                            <div className="flex items-center justify-between mb-1.5">
-                              <p
-                                style={{
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                  color: "#94A3B8",
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.06em",
-                                }}
-                              >
-                                {tr.requirements.reviewPriorityLabel}
-                              </p>
-                              <span
-                                className="px-2 py-0.5 rounded-md"
-                                style={{
-                                  background: prioBg,
-                                  color: prioColor,
-                                  fontSize: "11px",
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {prioLabel}
-                              </span>
-                            </div>
-                            <p style={{ fontSize: "12.5px", color: "#475569", lineHeight: 1.5 }}>
-                              {reason}
-                            </p>
-                          </div>
-                        );
-                      })()}
                     </>
                   ) : (
                     /* ── Idle placeholder ── */
@@ -1092,7 +818,7 @@ function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate,
                   <li key={issue.id} className="flex items-start gap-2">
                     <span style={{ color: "#DC2626", marginTop: "1px", flexShrink: 0 }}>·</span>
                     <p style={{ fontSize: "12px", color: "#7F1D1D", lineHeight: 1.5 }}>
-                      <strong>{issue.type}:</strong> {issue.reason}
+                      <strong>{issue.issue_type.replace(/_/g, " ")}:</strong> {issue.description}
                     </p>
                   </li>
                 ))}
@@ -1199,7 +925,6 @@ interface RequirementsProps {
   requirements: RequirementViewModel[];
   needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
-  issues: RequirementIssue[];
   loading: boolean;
   loadError: string | null;
   onRetry: () => Promise<void>;
@@ -1209,7 +934,15 @@ interface RequirementsProps {
   onSaveRequirement: (requirementId: string, payload: RequirementUpdateRequest) => Promise<RequirementViewModel>;
   onApproveRequirement: (requirementId: string) => Promise<RequirementViewModel>;
   onRejectRequirement: (requirementId: string) => Promise<RequirementViewModel>;
-  onUpdateIssue: (id: string, changes: Partial<RequirementIssue>) => void;
+  onLoadRequirementIssues: (requirementId: string) => Promise<RequirementIssueDto[]>;
+  onValidateRequirement: (
+    requirementId: string,
+    signal?: AbortSignal,
+  ) => Promise<{
+    run: AnalysisRunDto;
+    requirement: RequirementViewModel;
+    issues: RequirementIssueDto[];
+  }>;
   showGenerateModal?: boolean;
   onCloseGenerateModal?: () => void;
 }
@@ -1218,7 +951,6 @@ export function Requirements({
   requirements,
   needs,
   feedback,
-  issues,
   loading,
   loadError,
   onRetry,
@@ -1228,7 +960,8 @@ export function Requirements({
   onSaveRequirement,
   onApproveRequirement,
   onRejectRequirement,
-  onUpdateIssue,
+  onLoadRequirementIssues,
+  onValidateRequirement,
   showGenerateModal = false,
   onCloseGenerateModal,
 }: RequirementsProps) {
@@ -1245,6 +978,9 @@ export function Requirements({
   const [generating, setGenerating] = useState(false);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [busyRequirementId, setBusyRequirementId] = useState<string | null>(null);
+  const [validationIssues, setValidationIssues] = useState<RequirementIssueDto[]>([]);
+  const [issuesLoading, setIssuesLoading] = useState(false);
+  const [issuesError, setIssuesError] = useState<string | null>(null);
   const generationControllerRef = useRef<AbortController | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 5;
@@ -1338,13 +1074,38 @@ export function Requirements({
     setDetailLoadingId(requirementId);
     const toastId = toast.loading("Loading requirement details...");
     try {
-      setSelected(await onLoadRequirementDetail(requirementId));
+      const detail = await onLoadRequirementDetail(requirementId);
+      setSelected(detail);
+      setValidationIssues([]);
+      setIssuesError(null);
+      void refreshIssues(requirementId);
       toast.dismiss(toastId);
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to load requirement details."), { id: toastId });
     } finally {
       setDetailLoadingId(null);
     }
+  };
+
+  const refreshIssues = async (requirementId: string): Promise<void> => {
+    setIssuesLoading(true);
+    setIssuesError(null);
+    try {
+      setValidationIssues(await onLoadRequirementIssues(requirementId));
+    } catch (error) {
+      setIssuesError(getErrorMessage(error, "Unable to load validation issues."));
+    } finally {
+      setIssuesLoading(false);
+    }
+  };
+
+  const validateSelected = async (signal: AbortSignal): Promise<AnalysisRunDto> => {
+    if (!selected) throw new Error("No requirement selected.");
+    const result = await onValidateRequirement(selected.id, signal);
+    setSelected(result.requirement);
+    setValidationIssues(result.issues);
+    setIssuesError(null);
+    return result.run;
   };
 
   const updateSelected = async (payload: RequirementUpdateRequest): Promise<boolean> => {
@@ -1397,13 +1158,16 @@ export function Requirements({
         req={selected}
         needs={needs}
         feedback={feedback}
-        issues={issues}
+        validationIssues={validationIssues}
+        issuesLoading={issuesLoading}
+        issuesError={issuesError}
         actionBusy={busyRequirementId === selected.id}
-        onBack={() => setSelected(null)}
+        onBack={() => { setSelected(null); setValidationIssues([]); setIssuesError(null); }}
         onUpdate={updateSelected}
         onApprove={() => approve(selected.id)}
         onReject={() => reject(selected.id)}
-        onUpdateIssue={onUpdateIssue}
+        onRetryIssues={() => refreshIssues(selected.id)}
+        onValidate={validateSelected}
       />
     );
   }
@@ -1483,7 +1247,6 @@ export function Requirements({
               {paginated.map((req, i) => {
                 const sc = statusCfg[req.status];
                 const tc = typeCfg[req.type];
-                const reqIssues = issues.filter((iss) => iss.requirementId === req.id && iss.status === "Open");
                 return (
                   <tr key={req.id} onClick={() => void openRequirement(req.id)} className="cursor-pointer border-b transition-colors" style={{ borderColor: "var(--border)", background: i % 2 === 0 ? "#fff" : "#FAFBFC", opacity: detailLoadingId === req.id ? 0.65 : 1 }}
                     onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#F8FAFC"; }}
@@ -1514,8 +1277,8 @@ export function Requirements({
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
-                      {reqIssues.length > 0 ? (
-                        <div className="flex items-center gap-1.5"><AlertTriangle size={12} style={{ color: "#D97706" }} /><span style={{ fontSize: "12px", color: "#D97706", fontWeight: 600 }}>{reqIssues.length} open</span></div>
+                      {req.issueCount > 0 ? (
+                        <div className="flex items-center gap-1.5"><AlertTriangle size={12} style={{ color: "#D97706" }} /><span style={{ fontSize: "12px", color: "#D97706", fontWeight: 600 }}>{req.issueCount} open</span></div>
                       ) : (
                         <div className="flex items-center gap-1.5"><CheckCircle size={12} style={{ color: "#059669" }} /><span style={{ fontSize: "12px", color: "#059669" }}>Clean</span></div>
                       )}

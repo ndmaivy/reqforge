@@ -36,6 +36,16 @@ export async function startRequirementGeneration(
   return response.data;
 }
 
+export async function startRequirementValidation(
+  requirementId: string,
+): Promise<AnalysisAcceptedDto> {
+  const response = await apiRequest<DataResponse<AnalysisAcceptedDto>>(
+    `/api/v1/requirements/${encodeURIComponent(requirementId)}/validate`,
+    { method: "POST" },
+  );
+  return response.data;
+}
+
 function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {

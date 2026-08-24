@@ -4,6 +4,7 @@ import type {
   RequirementCreateRequest,
   RequirementDetailDto,
   RequirementDto,
+  RequirementIssueDto,
   RequirementUpdateRequest,
 } from "../types/requirement";
 
@@ -45,6 +46,15 @@ export async function updateRequirement(
   const response = await apiRequest<DataResponse<RequirementDto>>(
     `${REQUIREMENTS_PATH}/${encodeURIComponent(requirementId)}`,
     { method: "PATCH", body: JSON.stringify(payload) },
+  );
+  return response.data;
+}
+
+export async function listRequirementIssues(
+  requirementId: string,
+): Promise<RequirementIssueDto[]> {
+  const response = await apiRequest<DataResponse<RequirementIssueDto[]>>(
+    `${REQUIREMENTS_PATH}/${encodeURIComponent(requirementId)}/issues`,
   );
   return response.data;
 }

@@ -36,6 +36,7 @@ import {
   pollAnalysisRun,
   startFeedbackAnalysis,
   startRequirementGeneration,
+  startRequirementValidation,
 } from "../services/analysis";
 import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../types/analysis";
 import {
@@ -55,6 +56,7 @@ import {
   approveRequirement as approveRequirementRequest,
   createRequirement as createRequirementRequest,
   getRequirement as getRequirementRequest,
+  listRequirementIssues,
   listRequirements,
   rejectRequirement as rejectRequirementRequest,
   updateRequirement as updateRequirementRequest,
@@ -63,6 +65,7 @@ import type {
   RequirementCreateRequest,
   RequirementDetailDto,
   RequirementDto,
+  RequirementIssueDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
   RequirementViewModel,
@@ -206,6 +209,12 @@ function toUiRequirement(
     additionalContext: previous?.additionalContext,
     createdAt: requirement.created_at,
     updatedAt: requirement.updated_at,
+    validationOutdated: "validation_outdated" in requirement
+      ? requirement.validation_outdated
+      : previous?.validationOutdated ?? true,
+    latestValidationRunId: "latest_validation_run_id" in requirement
+      ? requirement.latest_validation_run_id
+      : previous?.latestValidationRunId ?? null,
   };
 }
 
@@ -442,6 +451,31 @@ export default function App() {
     return run;
   };
 
+  const loadRequirementIssues = async (requirementId: string): Promise<RequirementIssueDto[]> =>
+    listRequirementIssues(requirementId);
+
+  const validateRequirement = async (
+    requirementId: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    run: AnalysisRunDto;
+    requirement: RequirementViewModel;
+    issues: RequirementIssueDto[];
+  }> => {
+    const accepted = await startRequirementValidation(requirementId);
+    const run = await pollAnalysisRun(accepted.analysis_run_id, { signal });
+    if (run.status === "FAILED") {
+      throw new Error(run.error_message || "Requirement validation failed.");
+    }
+    const [detail, issues] = await Promise.all([
+      getRequirementRequest(requirementId),
+      listRequirementIssues(requirementId),
+    ]);
+    const current = allRequirements.find((item) => item.id === requirementId);
+    const requirement = storeRequirement(toUiRequirement(detail, current));
+    return { run, requirement, issues };
+  };
+
   const updateIssue = (id: string, changes: Partial<RequirementIssue>) =>
     setAllIssues((prev) => prev.map((i) => (i.id === id ? { ...i, ...changes } : i)));
 
@@ -589,7 +623,6 @@ export default function App() {
               requirements={projectRequirements}
               needs={projectNeeds}
               feedback={projectFeedback}
-              issues={projectIssues}
               loading={requirementsLoading}
               loadError={requirementsError}
               onRetry={() => loadRequirements(proj.id)}
@@ -599,7 +632,8 @@ export default function App() {
               onSaveRequirement={saveRequirement}
               onApproveRequirement={approveRequirement}
               onRejectRequirement={rejectRequirement}
-              onUpdateIssue={updateIssue}
+              onLoadRequirementIssues={loadRequirementIssues}
+              onValidateRequirement={validateRequirement}
               showGenerateModal={showGenerateReqs}
               onCloseGenerateModal={() => setShowGenerateReqs(false)}
             />

@@ -62,4 +62,6 @@ export interface RequirementViewModel extends Requirement {
   sourceNeedIds: string[];
   createdAt: string;
   updatedAt: string;
+  validationOutdated: boolean;
+  latestValidationRunId: string | null;
 }
