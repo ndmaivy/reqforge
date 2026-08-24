@@ -4,6 +4,7 @@ import type {
   AnalysisAcceptedDto,
   AnalysisRunDto,
   FeedbackAnalysisRequest,
+  RequirementGenerationRequest,
 } from "../types/analysis";
 
 export async function startFeedbackAnalysis(
@@ -20,6 +21,17 @@ export async function startFeedbackAnalysis(
 export async function getAnalysisRun(runId: string): Promise<AnalysisRunDto> {
   const response = await apiRequest<DataResponse<AnalysisRunDto>>(
     `/api/v1/analysis-runs/${encodeURIComponent(runId)}`,
+  );
+  return response.data;
+}
+
+export async function startRequirementGeneration(
+  projectId: string,
+  payload: RequirementGenerationRequest,
+): Promise<AnalysisAcceptedDto> {
+  const response = await apiRequest<DataResponse<AnalysisAcceptedDto>>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/analysis/requirements/generate`,
+    { method: "POST", body: JSON.stringify(payload) },
   );
   return response.data;
 }

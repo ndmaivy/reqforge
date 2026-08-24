@@ -1,7 +1,16 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, Sparkles, AlertTriangle, CheckCircle, X, ChevronRight, Edit2, Loader, Info, ExternalLink, ChevronDown, Plus, Shield, FileText, BookOpen } from "lucide-react";
 import { toast } from "sonner";
-import type { Requirement, RequirementStatus, RequirementType, RequirementSourceType, UserNeed, FeedbackItem, RequirementIssue, ConfidenceLevel } from "../data/mockData";
+import type { Requirement, RequirementStatus, RequirementType, RequirementSourceType, FeedbackItem, RequirementIssue, ConfidenceLevel } from "../data/mockData";
+import type { AnalysisRunDto } from "../../types/analysis";
+import type {
+  RequirementCreateRequest,
+  RequirementTypeDto,
+  RequirementUpdateRequest,
+  RequirementViewModel,
+} from "../../types/requirement";
+import type { UserNeedViewModel } from "../../types/userNeed";
+import { getErrorMessage } from "../../services/api";
 import { Modal, ConfirmDialog } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -36,7 +45,7 @@ const sourceCfg: Record<RequirementSourceType, { label: string; bg: string; text
   OTHER: { label: "Other", bg: "#F8FAFC", text: "#64748B" },
 };
 
-const REQ_TYPES: RequirementType[] = ["Functional", "Usability", "Interaction", "Accessibility", "Security", "Performance", "Non-functional", "Other"];
+const REQ_TYPES: RequirementType[] = ["Functional", "Usability", "Interaction", "Accessibility", "Non-functional"];
 const REQ_SOURCE_OPTIONS: { value: RequirementSourceType; label: string }[] = [
   { value: "STAKEHOLDER", label: "Stakeholder Request" },
   { value: "EXISTING_SPEC", label: "Existing Specification" },
@@ -50,13 +59,34 @@ const REQ_SOURCE_OPTIONS: { value: RequirementSourceType; label: string }[] = [
 const confColor: Record<ConfidenceLevel, string> = { High: "#059669", Medium: "#D97706", Low: "#DC2626" };
 const confPct: Record<ConfidenceLevel, number> = { High: 91, Medium: 68, Low: 42 };
 
+function toRequirementTypeDto(type: RequirementType): RequirementTypeDto {
+  if (type === "Usability") return "USABILITY";
+  if (type === "Interaction") return "INTERACTION";
+  if (type === "Accessibility") return "ACCESSIBILITY";
+  if (type === "Non-functional") return "NON_FUNCTIONAL";
+  return "FUNCTIONAL";
+}
+
+function formatRequirementDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
 interface ReqDetailProps {
-  req: Requirement;
-  needs: UserNeed[];
+  req: RequirementViewModel;
+  needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
   issues: RequirementIssue[];
+  actionBusy: boolean;
   onBack: () => void;
-  onUpdate: (changes: Partial<Requirement>) => void;
+  onUpdate: (changes: RequirementUpdateRequest) => Promise<boolean>;
+  onApprove: () => Promise<boolean>;
+  onReject: () => Promise<boolean>;
   onUpdateIssue: (id: string, changes: Partial<RequirementIssue>) => void;
 }
 
@@ -222,7 +252,7 @@ function buildManualValidationResult(req: Requirement, prevResult: ValidationRes
 }
 
 // ─── ReqDetail component ───────────────────────────────────────────────────────
-function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIssue }: ReqDetailProps) {
+function ReqDetail({ req, needs, feedback, issues, actionBusy, onBack, onUpdate, onApprove, onReject, onUpdateIssue }: ReqDetailProps) {
   const { tr } = useLanguage();
 
   // Edit state
@@ -280,8 +310,13 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
     }, 2000);
   };
 
-  const handleSave = () => {
-    onUpdate({ title: editTitle, description: editDesc, type: editType });
+  const handleSave = async () => {
+    const saved = await onUpdate({
+      title: editTitle.trim(),
+      description: editDesc.trim(),
+      type: toRequirementTypeDto(editType),
+    });
+    if (!saved) return;
     setEditing(false);
     if (validationStatus === "complete") {
       setValidationStatus("outdated");
@@ -291,26 +326,27 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
     }
   };
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (openHighIssues.length > 0) {
       setApproveWarningOpen(true);
     } else {
-      onUpdate({ status: "Approved" });
-      toast.success("Requirement approved");
+      if (await onApprove()) toast.success("Requirement approved");
     }
   };
 
-  const handleApproveAnyway = () => {
-    onUpdate({ status: "Approved" });
-    toast.success("Requirement approved with unresolved validation issue");
-    setApproveWarningOpen(false);
+  const handleApproveAnyway = async () => {
+    if (await onApprove()) {
+      toast.success("Requirement approved with unresolved validation issue");
+      setApproveWarningOpen(false);
+    }
   };
 
-  const handleRejectConfirm = () => {
-    onUpdate({ status: "Rejected" });
-    toast.success("Requirement rejected");
-    setRejectModalOpen(false);
-    onBack();
+  const handleRejectConfirm = async () => {
+    if (await onReject()) {
+      toast.success("Requirement rejected");
+      setRejectModalOpen(false);
+      onBack();
+    }
   };
 
   const toggleIssue = (id: string) => {
@@ -342,19 +378,21 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
           </div>
           {!editing && (
             <div className="flex items-center gap-2">
-              {req.status !== "Approved" && (
+              {req.status === "Needs Review" && (
                 <button
-                  onClick={handleApprove}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-white hover:opacity-90 transition-all"
+                  onClick={() => void handleApprove()}
+                  disabled={actionBusy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-white hover:opacity-90 disabled:opacity-60 transition-all"
                   style={{ background: "#059669", fontSize: "13px", fontWeight: 500 }}
                 >
                   <CheckCircle size={13} /> {tr.requirements.approve}
                 </button>
               )}
-              {req.status !== "Rejected" && (
+              {req.status === "Needs Review" && (
                 <button
                   onClick={() => setRejectModalOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl border hover:bg-red-50 transition-colors"
+                  disabled={actionBusy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl border hover:bg-red-50 disabled:opacity-60 transition-colors"
                   style={{ borderColor: "#FCA5A5", fontSize: "13px", color: "#DC2626" }}
                 >
                   {tr.requirements.reject}
@@ -449,8 +487,8 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
                   value: sourceNeed ? `${sourceNeed.id} — ${sourceNeed.title}` : req.sourceNeedId ?? "—",
                 }] : []),
                 ...(req.sourceReference ? [{ label: "Reference", value: req.sourceReference }] : []),
-                { label: "Created", value: "12 Aug 2026" },
-                { label: "Updated", value: "14 Aug 2026" },
+                { label: "Created", value: formatRequirementDate(req.createdAt) },
+                { label: "Updated", value: formatRequirementDate(req.updatedAt) },
               ].map((f) => (
                 <div key={f.label} className="flex items-start gap-3">
                   <span style={{ fontSize: "12px", color: "#94A3B8", width: "90px", flexShrink: 0 }}>{f.label}</span>
@@ -467,8 +505,9 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
               {editing ? (
                 <>
                   <button
-                    onClick={handleSave}
-                    className="flex items-center gap-2 px-4 py-2 rounded-md text-white hover:opacity-90 transition-all"
+                    onClick={() => void handleSave()}
+                    disabled={actionBusy || !editTitle.trim() || !editDesc.trim()}
+                    className="flex items-center gap-2 px-4 py-2 rounded-md text-white hover:opacity-90 disabled:opacity-60 transition-all"
                     style={{ background: "#059669", fontSize: "13px", fontWeight: 500 }}
                   >
                     {tr.requirements.save}
@@ -488,13 +527,16 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
                 </>
               ) : (
                 <>
-                  <button
-                    onClick={() => setEditing(true)}
-                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl border hover:bg-gray-50 transition-colors"
-                    style={{ borderColor: "var(--border)", fontSize: "13px" }}
-                  >
-                    <Edit2 size={12} /> {tr.requirements.edit}
-                  </button>
+                  {(req.status === "Draft" || req.status === "Needs Review") && (
+                    <button
+                      onClick={() => setEditing(true)}
+                      disabled={actionBusy}
+                      className="flex items-center gap-2 px-3.5 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                      style={{ borderColor: "var(--border)", fontSize: "13px" }}
+                    >
+                      <Edit2 size={12} /> {tr.requirements.edit}
+                    </button>
+                  )}
                   <button
                     onClick={handleRunValidation}
                     disabled={validationStatus === "running"}
@@ -1066,8 +1108,9 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
               {tr.requirements.cancel}
             </button>
             <button
-              onClick={handleApproveAnyway}
-              className="px-4 py-2 rounded-md text-white hover:opacity-90"
+              onClick={() => void handleApproveAnyway()}
+              disabled={actionBusy}
+              className="px-4 py-2 rounded-md text-white hover:opacity-90 disabled:opacity-60"
               style={{ background: "#DC2626", fontSize: "13px", fontWeight: 500 }}
             >
               {tr.requirements.approveAnyway}
@@ -1138,8 +1181,8 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
               {tr.requirements.cancel}
             </button>
             <button
-              onClick={handleRejectConfirm}
-              disabled={!rejectReason}
+              onClick={() => void handleRejectConfirm()}
+              disabled={!rejectReason || actionBusy}
               className="px-4 py-2 rounded-md text-white hover:opacity-90 disabled:opacity-50"
               style={{ background: "#DC2626", fontSize: "13px", fontWeight: 500 }}
             >
@@ -1153,30 +1196,56 @@ function ReqDetail({ req, needs, feedback, issues, onBack, onUpdate, onUpdateIss
 }
 
 interface RequirementsProps {
-  requirements: Requirement[];
-  needs: UserNeed[];
+  requirements: RequirementViewModel[];
+  needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
   issues: RequirementIssue[];
-  onUpdateRequirement: (id: string, changes: Partial<Requirement>) => void;
-  onAddRequirements: (reqs: Requirement[]) => void;
+  loading: boolean;
+  loadError: string | null;
+  onRetry: () => Promise<void>;
+  onGenerateRequirements: (needIds: string[], signal?: AbortSignal) => Promise<AnalysisRunDto>;
+  onLoadRequirementDetail: (requirementId: string) => Promise<RequirementViewModel>;
+  onCreateRequirement: (payload: RequirementCreateRequest) => Promise<RequirementViewModel>;
+  onSaveRequirement: (requirementId: string, payload: RequirementUpdateRequest) => Promise<RequirementViewModel>;
+  onApproveRequirement: (requirementId: string) => Promise<RequirementViewModel>;
+  onRejectRequirement: (requirementId: string) => Promise<RequirementViewModel>;
   onUpdateIssue: (id: string, changes: Partial<RequirementIssue>) => void;
-  projectId: string;
   showGenerateModal?: boolean;
   onCloseGenerateModal?: () => void;
 }
 
-export function Requirements({ requirements, needs, feedback, issues, onUpdateRequirement, onAddRequirements, onUpdateIssue, projectId, showGenerateModal = false, onCloseGenerateModal }: RequirementsProps) {
+export function Requirements({
+  requirements,
+  needs,
+  feedback,
+  issues,
+  loading,
+  loadError,
+  onRetry,
+  onGenerateRequirements,
+  onLoadRequirementDetail,
+  onCreateRequirement,
+  onSaveRequirement,
+  onApproveRequirement,
+  onRejectRequirement,
+  onUpdateIssue,
+  showGenerateModal = false,
+  onCloseGenerateModal,
+}: RequirementsProps) {
   const { tr } = useLanguage();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState(tr.requirements.allStatuses);
   const [typeFilter, setTypeFilter] = useState(tr.requirements.allTypes);
   const [sourceFilter, setSourceFilter] = useState("All Sources");
   const [confFilter, setConfFilter] = useState(tr.requirements.allConfidence);
-  const [selected, setSelected] = useState<Requirement | null>(null);
+  const [selected, setSelected] = useState<RequirementViewModel | null>(null);
   const [localShowGen, setLocalShowGen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [genSelected, setGenSelected] = useState<Set<string>>(new Set());
   const [generating, setGenerating] = useState(false);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [busyRequirementId, setBusyRequirementId] = useState<string | null>(null);
+  const generationControllerRef = useRef<AbortController | null>(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 5;
 
@@ -1190,7 +1259,6 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
   const closeGen = () => { setLocalShowGen(false); onCloseGenerateModal?.(); setGenSelected(new Set()); };
 
   const confirmedNeeds = needs.filter((n) => n.status === "Confirmed");
-  const ungenNeeds = confirmedNeeds.filter((n) => !requirements.some((r) => r.sourceNeedId === n.id && r.status !== "Rejected"));
 
   const filtered = useMemo(() => {
     let list = requirements;
@@ -1215,90 +1283,112 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
   }, [requirements, search, statusFilter, typeFilter, confFilter, sourceFilter, tr]);
 
   useEffect(() => { setPage(1); }, [search, statusFilter, typeFilter, confFilter, sourceFilter]);
+  useEffect(() => () => generationControllerRef.current?.abort(), []);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const needRequirementTemplates: Record<string, { title: string; description: string; type: RequirementType }> = {
-    "NEED-001": {
-      title: "Improve readability of admissions content",
-      description: "Primary admission content must maintain readable typography and spacing across supported desktop and mobile viewports.",
-      type: "Usability",
-    },
-    "NEED-002": {
-      title: "Provide clear access to tuition information",
-      description: "The system must surface a prominent link to tuition fee details from any Admissions or Programs page within two navigational steps.",
-      type: "Functional",
-    },
-    "NEED-003": {
-      title: "Simplify mobile navigation structure",
-      description: "Mobile navigation must not exceed two hierarchical levels. All primary content must be reachable from the top-level menu.",
-      type: "Interaction",
-    },
-    "NEED-004": {
-      title: "Preserve registration form progress",
-      description: "The registration form must preserve user input during session interruptions and allow users to resume from the most recently saved state.",
-      type: "Functional",
-    },
-  };
-
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
     if (genSelected.size === 0) { toast.error("Please select at least one User Need"); return; }
+    const selectedCount = genSelected.size;
     setGenerating(true);
-    setTimeout(() => {
-      const nextNum = requirements.length + 17;
-      const newReqs: Requirement[] = Array.from(genSelected).map((needId, idx) => {
-        const need = needs.find((n) => n.id === needId)!;
-        const template = needRequirementTemplates[needId];
-        return {
-          id: `REQ-${String(nextNum + idx).padStart(3, "0")}`,
-          projectId,
-          title: template?.title ?? need.title,
-          description: template?.description ?? `The system must support: ${need.description}`,
-          type: (template?.type ?? "Functional") as RequirementType,
-          status: "Needs Review" as RequirementStatus,
-          confidence: need.confidence,
-          issueCount: 0,
-          sourceNeedId: need.id,
-          sourceType: "AI_FROM_USER_NEED" as RequirementSourceType,
-        };
-      });
-      onAddRequirements(newReqs);
+    const controller = new AbortController();
+    generationControllerRef.current = controller;
+    try {
+      await onGenerateRequirements(Array.from(genSelected), controller.signal);
       setGenerating(false);
       closeGen();
-      toast.success(newReqs.length === 1 ? "1 candidate requirement generated" : `${newReqs.length} candidate requirements generated`);
-    }, 2000);
+      toast.success(selectedCount === 1 ? "1 candidate requirement generated" : `${selectedCount} candidate requirements generated`);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        toast.error(getErrorMessage(error, "Unable to generate requirements."));
+      }
+    } finally {
+      generationControllerRef.current = null;
+      setGenerating(false);
+    }
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const errs: Partial<Record<string, string>> = {};
     if (!createForm.title.trim()) errs.title = "Title is required";
     if (!createForm.description.trim()) errs.description = "Description is required";
     if (!createForm.sourceOption) errs.sourceOption = "Source is required";
     if (Object.keys(errs).length > 0) { setCreateErrors(errs); return; }
     setCreating(true);
-    setTimeout(() => {
-      const nextNum = requirements.length + 27;
-      const newReq: Requirement = {
-        id: `REQ-${String(nextNum).padStart(3, "0")}`,
-        projectId,
+    try {
+      await onCreateRequirement({
         title: createForm.title.trim(),
         description: createForm.description.trim(),
-        type: createForm.type,
-        status: "Needs Review",
-        confidence: "Medium",
-        issueCount: 0,
-        sourceType: createForm.sourceOption as RequirementSourceType,
-        sourceNeedId: createForm.relatedNeedId || undefined,
-        sourceReference: createForm.sourceRef.trim() || undefined,
-        additionalContext: createForm.context.trim() || undefined,
-      };
-      onAddRequirements([newReq]);
-      setCreating(false);
+        type: toRequirementTypeDto(createForm.type),
+        need_ids: createForm.relatedNeedId ? [createForm.relatedNeedId] : [],
+      });
       setShowCreate(false);
       setCreateForm(emptyCreateForm());
       setCreateErrors({});
       toast.success("Requirement created");
-    }, 800);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to create requirement."));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openRequirement = async (requirementId: string) => {
+    if (detailLoadingId) return;
+    setDetailLoadingId(requirementId);
+    const toastId = toast.loading("Loading requirement details...");
+    try {
+      setSelected(await onLoadRequirementDetail(requirementId));
+      toast.dismiss(toastId);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to load requirement details."), { id: toastId });
+    } finally {
+      setDetailLoadingId(null);
+    }
+  };
+
+  const updateSelected = async (payload: RequirementUpdateRequest): Promise<boolean> => {
+    if (!selected || busyRequirementId) return false;
+    setBusyRequirementId(selected.id);
+    try {
+      setSelected(await onSaveRequirement(selected.id, payload));
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to update requirement."));
+      return false;
+    } finally {
+      setBusyRequirementId(null);
+    }
+  };
+
+  const approve = async (requirementId: string): Promise<boolean> => {
+    if (busyRequirementId) return false;
+    setBusyRequirementId(requirementId);
+    try {
+      const updated = await onApproveRequirement(requirementId);
+      if (selected?.id === requirementId) setSelected(updated);
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to approve requirement."));
+      return false;
+    } finally {
+      setBusyRequirementId(null);
+    }
+  };
+
+  const reject = async (requirementId: string): Promise<boolean> => {
+    if (busyRequirementId) return false;
+    setBusyRequirementId(requirementId);
+    try {
+      const updated = await onRejectRequirement(requirementId);
+      if (selected?.id === requirementId) setSelected(updated);
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to reject requirement."));
+      return false;
+    } finally {
+      setBusyRequirementId(null);
+    }
   };
 
   if (selected) {
@@ -1308,8 +1398,11 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
         needs={needs}
         feedback={feedback}
         issues={issues}
+        actionBusy={busyRequirementId === selected.id}
         onBack={() => setSelected(null)}
-        onUpdate={(changes) => { onUpdateRequirement(selected.id, changes); setSelected({ ...selected, ...changes } as Requirement); }}
+        onUpdate={updateSelected}
+        onApprove={() => approve(selected.id)}
+        onReject={() => reject(selected.id)}
         onUpdateIssue={onUpdateIssue}
       />
     );
@@ -1359,6 +1452,12 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
         </div>
 
         {/* Table */}
+        {loadError && (
+          <div className="mb-3 flex items-center justify-between rounded-lg border px-4 py-3" style={{ background: "#FEF2F2", borderColor: "#FCA5A5" }}>
+            <span style={{ fontSize: "12.5px", color: "#B91C1C" }}>{loadError}</span>
+            <button onClick={() => void onRetry()} style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>Retry</button>
+          </div>
+        )}
         <div className="rounded-lg border overflow-hidden" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
           <table className="w-full">
             <thead>
@@ -1369,12 +1468,24 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
               </tr>
             </thead>
             <tbody>
+              {loading && requirements.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center">
+                    <Loader size={15} className="animate-spin inline" style={{ color: "#1E3A8A" }} />
+                  </td>
+                </tr>
+              )}
+              {!loading && requirements.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center" style={{ fontSize: "13px", color: "#64748B" }}>No requirements found.</td>
+                </tr>
+              )}
               {paginated.map((req, i) => {
                 const sc = statusCfg[req.status];
                 const tc = typeCfg[req.type];
                 const reqIssues = issues.filter((iss) => iss.requirementId === req.id && iss.status === "Open");
                 return (
-                  <tr key={req.id} onClick={() => setSelected(req)} className="cursor-pointer border-b transition-colors" style={{ borderColor: "var(--border)", background: i % 2 === 0 ? "#fff" : "#FAFBFC" }}
+                  <tr key={req.id} onClick={() => void openRequirement(req.id)} className="cursor-pointer border-b transition-colors" style={{ borderColor: "var(--border)", background: i % 2 === 0 ? "#fff" : "#FAFBFC", opacity: detailLoadingId === req.id ? 0.65 : 1 }}
                     onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "#F8FAFC"; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = i % 2 === 0 ? "#fff" : "#FAFBFC"; }}
                   >
@@ -1410,8 +1521,8 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      {req.status !== "Approved" && (
-                        <button onClick={(e) => { e.stopPropagation(); onUpdateRequirement(req.id, { status: "Approved" }); toast.success("Requirement approved"); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
+                      {req.status === "Needs Review" && (
+                        <button disabled={busyRequirementId !== null} onClick={(e) => { e.stopPropagation(); void approve(req.id).then((succeeded) => { if (succeeded) toast.success("Requirement approved"); }); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
                           <CheckCircle size={10} /> {tr.requirements.approve}
                         </button>
                       )}
@@ -1477,7 +1588,7 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
 
       {/* Generate from User Needs Modal */}
       {showGen && (
-        <Modal title="Generate Candidate Requirements" subtitle="Create candidate software requirements from confirmed User Needs and supporting evidence." onClose={closeGen} width="560px">
+        <Modal title="Generate Candidate Requirements" subtitle="Create candidate software requirements from confirmed User Needs and supporting evidence." onClose={generating ? undefined : closeGen} width="560px">
           <div className="px-5 py-4">
             {confirmedNeeds.length === 0 ? (
               <p style={{ fontSize: "13.5px", color: "#64748B", textAlign: "center", padding: "20px 0" }}>No confirmed User Needs available. Confirm needs in the User Needs tab first.</p>
@@ -1490,8 +1601,8 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
                 <div className="space-y-2">
                   {confirmedNeeds.map((need) => {
                     const checked = genSelected.has(need.id);
-                    const fbCount = need.feedbackIds?.length ?? 0;
-                    const alreadyCovered = requirements.some((r) => r.sourceNeedId === need.id && r.status !== "Rejected");
+                    const fbCount = need.evidenceCount;
+                    const alreadyCovered = requirements.some((r) => r.sourceNeedIds.includes(need.id) && r.status !== "Rejected");
                     return (
                       <label key={need.id} className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors" style={{ borderColor: checked ? "#1E3A8A" : "var(--border)", background: checked ? "#EFF6FF" : "#F8FAFC" }}>
                         <input type="checkbox" checked={checked} onChange={() => { const n = new Set(genSelected); checked ? n.delete(need.id) : n.add(need.id); setGenSelected(n); }} className="mt-0.5" />
@@ -1512,8 +1623,8 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
             )}
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
-            <button onClick={closeGen} className="px-4 py-2 rounded-md border hover:bg-gray-50" style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Cancel</button>
-            <button onClick={handleGenerate} disabled={generating || genSelected.size === 0} className="flex items-center gap-2 px-4 py-2 rounded-2xl text-white hover:opacity-90 disabled:opacity-60" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
+            <button onClick={closeGen} disabled={generating} className="px-4 py-2 rounded-md border hover:bg-gray-50 disabled:opacity-60" style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Cancel</button>
+            <button onClick={() => void handleGenerate()} disabled={generating || genSelected.size === 0} className="flex items-center gap-2 px-4 py-2 rounded-2xl text-white hover:opacity-90 disabled:opacity-60" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
               {generating ? <><Loader size={12} className="animate-spin" /> Generating...</> : <><Sparkles size={12} /> {genSelected.size > 0 ? `Generate ${genSelected.size} Candidate Requirement${genSelected.size !== 1 ? "s" : ""}` : "Generate"}</>}
             </button>
           </div>
@@ -1577,7 +1688,7 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
                   className="w-full rounded-md border px-3 py-2 outline-none"
                   style={{ borderColor: "var(--border)", fontSize: "13px", background: "#F8FAFC" }}>
                   <option value="">None</option>
-                  {needs.map((n) => <option key={n.id} value={n.id}>{n.id} — {n.title}</option>)}
+                  {confirmedNeeds.map((n) => <option key={n.id} value={n.id}>{n.id} — {n.title}</option>)}
                 </select>
               </div>
             </div>
@@ -1592,7 +1703,7 @@ export function Requirements({ requirements, needs, feedback, issues, onUpdateRe
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
             <button onClick={() => { setShowCreate(false); setCreateForm(emptyCreateForm()); setCreateErrors({}); }} className="px-4 py-2 rounded-md border hover:bg-gray-50" style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Cancel</button>
-            <button onClick={handleCreate} disabled={creating} className="flex items-center gap-2 px-4 py-2 rounded-xl text-white hover:opacity-90 disabled:opacity-60" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500 }}>
+            <button onClick={() => void handleCreate()} disabled={creating} className="flex items-center gap-2 px-4 py-2 rounded-xl text-white hover:opacity-90 disabled:opacity-60" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500 }}>
               {creating ? <><Loader size={12} className="animate-spin" /> Creating...</> : <><Plus size={12} /> Create Requirement</>}
             </button>
           </div>

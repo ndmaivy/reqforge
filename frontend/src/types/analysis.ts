@@ -14,6 +14,10 @@ export interface FeedbackAnalysisRequest {
   feedback_ids?: string[];
 }
 
+export interface RequirementGenerationRequest {
+  need_ids: string[];
+}
+
 export interface AnalysisAcceptedDto {
   analysis_run_id: string;
   status: AnalysisStatus;
@@ -22,6 +26,7 @@ export interface AnalysisAcceptedDto {
 export interface FeedbackAnalysisOutput {
   feedback_results?: unknown[];
   candidate_needs?: unknown[];
+  requirements?: unknown[];
   [key: string]: unknown;
 }
 

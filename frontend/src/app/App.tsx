@@ -10,12 +10,11 @@ import { UserNeeds } from "./components/UserNeeds";
 import { Requirements } from "./components/Requirements";
 import { Analysis } from "./components/Analysis";
 import {
-  INITIAL_REQUIREMENTS,
   INITIAL_ISSUES, INITIAL_ACTIVITIES,
 } from "./data/mockData";
 import type {
   Project, Platform, FeedbackItem, FeedbackCategory, FeedbackSource,
-  Requirement, RequirementIssue,
+  Requirement, RequirementIssue, RequirementStatus, RequirementType,
 } from "./data/mockData";
 import type { CreateProjectFormData } from "./components/ProjectsPage";
 import { getErrorMessage } from "../services/api";
@@ -33,7 +32,11 @@ import {
   updateFeedback as updateFeedbackRequest,
 } from "../services/feedback";
 import type { FeedbackCreateRequest, FeedbackDto } from "../types/feedback";
-import { pollAnalysisRun, startFeedbackAnalysis } from "../services/analysis";
+import {
+  pollAnalysisRun,
+  startFeedbackAnalysis,
+  startRequirementGeneration,
+} from "../services/analysis";
 import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../types/analysis";
 import {
   confirmNeed as confirmNeedRequest,
@@ -48,6 +51,22 @@ import type {
   UserNeedUpdateRequest,
   UserNeedViewModel,
 } from "../types/userNeed";
+import {
+  approveRequirement as approveRequirementRequest,
+  createRequirement as createRequirementRequest,
+  getRequirement as getRequirementRequest,
+  listRequirements,
+  rejectRequirement as rejectRequirementRequest,
+  updateRequirement as updateRequirementRequest,
+} from "../services/requirements";
+import type {
+  RequirementCreateRequest,
+  RequirementDetailDto,
+  RequirementDto,
+  RequirementTypeDto,
+  RequirementUpdateRequest,
+  RequirementViewModel,
+} from "../types/requirement";
 
 type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis";
 
@@ -142,6 +161,54 @@ function toUiNeed(need: UserNeedDto, evidenceCount = 0): UserNeedViewModel {
   };
 }
 
+const requirementStatuses: Record<RequirementDto["status"], RequirementStatus> = {
+  DRAFT: "Draft",
+  NEEDS_REVIEW: "Needs Review",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  ARCHIVED: "Archived",
+};
+
+const requirementTypes: Record<RequirementTypeDto, RequirementType> = {
+  FUNCTIONAL: "Functional",
+  USABILITY: "Usability",
+  INTERACTION: "Interaction",
+  ACCESSIBILITY: "Accessibility",
+  NON_FUNCTIONAL: "Non-functional",
+};
+
+function toUiRequirement(
+  requirement: RequirementDto | RequirementDetailDto,
+  previous?: RequirementViewModel,
+): RequirementViewModel {
+  const score = requirement.confidence === null ? null : Number(requirement.confidence);
+  const sourceNeedIds = "needs" in requirement
+    ? requirement.needs.map((need) => need.id)
+    : previous?.sourceNeedIds ?? [];
+  const issueCount = "issues" in requirement
+    ? requirement.issues.filter((issue) => issue.status === "OPEN").length
+    : previous?.issueCount ?? 0;
+
+  return {
+    id: requirement.id,
+    projectId: requirement.project_id,
+    title: requirement.title,
+    description: requirement.description,
+    type: requirementTypes[requirement.type],
+    status: requirementStatuses[requirement.status],
+    confidence: score !== null && score >= 0.8 ? "High" : score !== null && score >= 0.5 ? "Medium" : "Low",
+    confidenceScore: Number.isFinite(score) ? score : null,
+    issueCount,
+    sourceNeedId: sourceNeedIds[0],
+    sourceNeedIds,
+    sourceType: requirement.generated_by === "AI" ? "AI_FROM_USER_NEED" : "MANUAL",
+    sourceReference: previous?.sourceReference,
+    additionalContext: previous?.additionalContext,
+    createdAt: requirement.created_at,
+    updatedAt: requirement.updated_at,
+  };
+}
+
 export default function App() {
   // Top-level view
   const [view, setView] = useState<"projects" | "workspace">("projects");
@@ -158,7 +225,9 @@ export default function App() {
   const [allNeeds, setAllNeeds] = useState<UserNeedViewModel[]>([]);
   const [needsLoading, setNeedsLoading] = useState(false);
   const [needsError, setNeedsError] = useState<string | null>(null);
-  const [allRequirements, setAllRequirements] = useState<Requirement[]>(INITIAL_REQUIREMENTS);
+  const [allRequirements, setAllRequirements] = useState<RequirementViewModel[]>([]);
+  const [requirementsLoading, setRequirementsLoading] = useState(false);
+  const [requirementsError, setRequirementsError] = useState<string | null>(null);
   const [allIssues, setAllIssues] = useState<RequirementIssue[]>(INITIAL_ISSUES);
   const [activities] = useState(INITIAL_ACTIVITIES);
 
@@ -209,6 +278,20 @@ export default function App() {
     }
   }, []);
 
+  const loadRequirements = useCallback(async (projectId: string) => {
+    setRequirementsLoading(true);
+    setRequirementsError(null);
+    try {
+      const response = await listRequirements(projectId);
+      setAllRequirements(response.data.map((requirement) => toUiRequirement(requirement)));
+    } catch (error) {
+      setAllRequirements([]);
+      setRequirementsError(getErrorMessage(error, "Unable to load requirements."));
+    } finally {
+      setRequirementsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
@@ -221,10 +304,17 @@ export default function App() {
       setAllNeeds([]);
       setNeedsError(null);
       setNeedsLoading(false);
+      setAllRequirements([]);
+      setRequirementsError(null);
+      setRequirementsLoading(false);
       return;
     }
-    void Promise.all([loadFeedback(activeProject.id), loadNeeds(activeProject.id)]);
-  }, [activeProject?.id, loadFeedback, loadNeeds]);
+    void Promise.all([
+      loadFeedback(activeProject.id),
+      loadNeeds(activeProject.id),
+      loadRequirements(activeProject.id),
+    ]);
+  }, [activeProject?.id, loadFeedback, loadNeeds, loadRequirements]);
 
   // Derived — data for current project
   const proj = activeProject!;
@@ -297,9 +387,60 @@ export default function App() {
   const rejectNeed = async (needId: string): Promise<UserNeedViewModel> =>
     replaceNeed(await rejectNeedRequest(needId));
 
-  const updateRequirement = (id: string, changes: Partial<Requirement>) =>
-    setAllRequirements((prev) => prev.map((r) => (r.id === id ? { ...r, ...changes } : r)));
-  const addRequirements = (reqs: Requirement[]) => setAllRequirements((prev) => [...prev, ...reqs]);
+  const storeRequirement = (requirement: RequirementViewModel): RequirementViewModel => {
+    setAllRequirements((prev) => {
+      const exists = prev.some((item) => item.id === requirement.id);
+      return exists
+        ? prev.map((item) => (item.id === requirement.id ? requirement : item))
+        : [requirement, ...prev];
+    });
+    return requirement;
+  };
+
+  const loadRequirementDetail = async (requirementId: string): Promise<RequirementViewModel> => {
+    const current = allRequirements.find((item) => item.id === requirementId);
+    return storeRequirement(toUiRequirement(await getRequirementRequest(requirementId), current));
+  };
+
+  const createRequirement = async (
+    payload: RequirementCreateRequest,
+  ): Promise<RequirementViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const created = await createRequirementRequest(activeProject.id, payload);
+    return storeRequirement(toUiRequirement(await getRequirementRequest(created.id)));
+  };
+
+  const saveRequirement = async (
+    requirementId: string,
+    payload: RequirementUpdateRequest,
+  ): Promise<RequirementViewModel> => {
+    await updateRequirementRequest(requirementId, payload);
+    return loadRequirementDetail(requirementId);
+  };
+
+  const approveRequirement = async (requirementId: string): Promise<RequirementViewModel> => {
+    await approveRequirementRequest(requirementId);
+    return loadRequirementDetail(requirementId);
+  };
+
+  const rejectRequirement = async (requirementId: string): Promise<RequirementViewModel> => {
+    await rejectRequirementRequest(requirementId);
+    return loadRequirementDetail(requirementId);
+  };
+
+  const generateRequirements = async (
+    needIds: string[],
+    signal?: AbortSignal,
+  ): Promise<AnalysisRunDto> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const accepted = await startRequirementGeneration(activeProject.id, { need_ids: needIds });
+    const run = await pollAnalysisRun(accepted.analysis_run_id, { signal });
+    if (run.status === "FAILED") {
+      throw new Error(run.error_message || "Requirement generation failed.");
+    }
+    await loadRequirements(activeProject.id);
+    return run;
+  };
 
   const updateIssue = (id: string, changes: Partial<RequirementIssue>) =>
     setAllIssues((prev) => prev.map((i) => (i.id === id ? { ...i, ...changes } : i)));
@@ -449,10 +590,16 @@ export default function App() {
               needs={projectNeeds}
               feedback={projectFeedback}
               issues={projectIssues}
-              onUpdateRequirement={updateRequirement}
-              onAddRequirements={addRequirements}
+              loading={requirementsLoading}
+              loadError={requirementsError}
+              onRetry={() => loadRequirements(proj.id)}
+              onGenerateRequirements={generateRequirements}
+              onLoadRequirementDetail={loadRequirementDetail}
+              onCreateRequirement={createRequirement}
+              onSaveRequirement={saveRequirement}
+              onApproveRequirement={approveRequirement}
+              onRejectRequirement={rejectRequirement}
               onUpdateIssue={updateIssue}
-              projectId={proj.id}
               showGenerateModal={showGenerateReqs}
               onCloseGenerateModal={() => setShowGenerateReqs(false)}
             />
