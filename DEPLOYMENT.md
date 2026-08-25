@@ -81,7 +81,30 @@ Use these settings if the Blueprint is not used.
 | `MAX_IMPORT_BYTES` | Backend | No | `5000000` | No |
 | `VITE_API_BASE_URL` | Frontend | Yes | `https://reqforge-api.onrender.com` | No |
 
-Keep `LLM_PROVIDER=stub` for the current deterministic provider. To use the already-supported OpenAI-compatible adapter later, set `LLM_PROVIDER=openai_compatible` plus its key, model, and base URL in Render; never commit those secret values.
+Keep `LLM_PROVIDER=stub` for the deterministic local and test provider. The real adapter accepts
+`LLM_PROVIDER=openai` or `openai_compatible` with its API key and model; never commit those
+secret values.
+
+## Real LLM configuration on Render
+
+In **Render Dashboard → reqforge-api → Environment**, set:
+
+- `LLM_PROVIDER=openai`
+- `LLM_API_KEY=<provider secret>`
+- `LLM_MODEL=<configured model name>`
+- `LLM_BASE_URL` is optional for direct OpenAI because it defaults to `https://api.openai.com/v1`; set it only when a compatible provider uses another API base URL
+- `LLM_TIMEOUT_SECONDS=30`
+- `LLM_MAX_RETRIES=2`
+
+Choose a model that supports the OpenAI-compatible Chat Completions endpoint and JSON mode. The
+adapter validates every returned JSON object against ReqForge's Pydantic output schema.
+
+Save the environment and redeploy only `reqforge-api`. The backend sends project evidence to the
+provider and records `LLM_MODEL` in each new `analysis_run`; the frontend never receives or uses
+the provider API key. Provider failures mark the run `FAILED` and never fall back to stub.
+
+To roll back explicitly, set `LLM_PROVIDER=stub` and redeploy the backend. Existing analysis data
+remains unchanged. Do not leave a real API key in a local file or commit it to Git.
 
 ## Production smoke test
 

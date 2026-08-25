@@ -1,5 +1,23 @@
 from __future__ import annotations
 
+from typing import Any
+
+from app.ai.client import AIClient
+from app.core.exceptions import AIProviderError
+
+
+class FailingRealAIClient(AIClient):
+    model_name = "configured-production-model"
+
+    async def analyze_feedback(self, context: dict[str, Any]):
+        raise AIProviderError("Simulated provider failure")
+
+    async def generate_requirements(self, context: dict[str, Any]):
+        raise AssertionError("Unexpected generation call")
+
+    async def validate_requirement(self, context: dict[str, Any]):
+        raise AssertionError("Unexpected validation call")
+
 
 def create_project(client, name: str) -> str:
     response = client.post("/api/v1/projects", json={"name": name})
@@ -93,3 +111,29 @@ def test_project_boundary_and_state_validation(client):
         json={"need_ids": [need_id]},
     )
     assert not_confirmed.status_code == 409
+
+
+def test_provider_failure_marks_analysis_run_failed_without_partial_persistence(client):
+    project_id = create_project(client, "Provider Failure")
+    feedback_id = create_feedback(
+        client, project_id, "Users cannot understand the mobile navigation"
+    )
+    failing_client = FailingRealAIClient()
+    client.app.state.ai_client = failing_client
+    client.app.state.analysis_dispatcher.ai_client = failing_client
+
+    analysis = client.post(
+        f"/api/v1/projects/{project_id}/analysis/feedback",
+        json={"mode": "SELECTED", "feedback_ids": [feedback_id]},
+    )
+
+    assert analysis.status_code == 202
+    run_id = analysis.json()["data"]["analysis_run_id"]
+    run = client.get(f"/api/v1/analysis-runs/{run_id}").json()["data"]
+    assert run["status"] == "FAILED"
+    assert run["model"] == "configured-production-model"
+    assert "AIProviderError" in run["error_message"]
+    feedback = client.get(f"/api/v1/feedback/{feedback_id}").json()["data"]
+    assert feedback["status"] == "NEW"
+    needs = client.get(f"/api/v1/projects/{project_id}/needs").json()["data"]
+    assert needs == []

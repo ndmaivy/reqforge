@@ -126,7 +126,11 @@ class StubAIClient(AIClient):
 
 
 class OpenAICompatibleClient(AIClient):
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         if not settings.llm_api_key or not settings.llm_model:
             raise ValueError("LLM_API_KEY and LLM_MODEL are required for an external provider")
         self.model_name = settings.llm_model
@@ -135,6 +139,7 @@ class OpenAICompatibleClient(AIClient):
             base_url=settings.llm_base_url.rstrip("/"),
             timeout=settings.llm_timeout_seconds,
             headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+            transport=transport,
         )
 
     async def analyze_feedback(self, context: dict[str, Any]) -> FeedbackAnalysisOutput:
@@ -160,7 +165,10 @@ class OpenAICompatibleClient(AIClient):
                 {
                     "role": "user",
                     "content": json.dumps(
-                        {"context": context, "output_schema": schema.model_json_schema()},
+                        {
+                            "untrusted_context": context,
+                            "required_output_schema": schema.model_json_schema(),
+                        },
                         default=str,
                         ensure_ascii=False,
                     ),
@@ -169,22 +177,41 @@ class OpenAICompatibleClient(AIClient):
             "response_format": {"type": "json_object"},
             "temperature": 0,
         }
+        validation_error: ValidationError | ValueError | TypeError | None = None
+        for structured_attempt in range(2):
+            content = await self._request_content(payload)
+            try:
+                return schema.model_validate_json(content)
+            except (ValidationError, ValueError, TypeError) as exc:
+                validation_error = exc
+                if structured_attempt == 0:
+                    continue
+        raise AIOutputValidationError(
+            "AI output did not match the expected schema"
+        ) from validation_error
+
+    async def _request_content(self, payload: dict[str, Any]) -> str:
         for attempt in range(self.max_retries + 1):
             try:
                 response = await self._client.post("/chat/completions", json=payload)
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
-                return schema.model_validate_json(content)
+                if not isinstance(content, str):
+                    raise TypeError("AI response content must be a JSON string")
+                return content
             except httpx.TimeoutException as exc:
                 if attempt == self.max_retries:
                     raise AITimeoutError("The AI provider timed out") from exc
-            except (httpx.HTTPError, KeyError, TypeError) as exc:
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code
+                retryable = status_code in {408, 429} or status_code >= 500
+                if not retryable or attempt == self.max_retries:
+                    raise AIProviderError(
+                        f"The AI provider request failed with HTTP {status_code}"
+                    ) from exc
+            except (httpx.HTTPError, IndexError, KeyError, TypeError, ValueError) as exc:
                 if attempt == self.max_retries:
                     raise AIProviderError("The AI provider returned an invalid response") from exc
-            except (ValidationError, ValueError) as exc:
-                raise AIOutputValidationError(
-                    "AI output did not match the expected schema"
-                ) from exc
             await asyncio.sleep(0.25 * (2**attempt))
         raise AIProviderError("The AI provider request failed")
 
