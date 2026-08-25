@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import Any, TypeVar
@@ -21,6 +22,7 @@ from app.core.config import Settings
 from app.core.exceptions import AIOutputValidationError, AIProviderError, AITimeoutError
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
+logger = logging.getLogger(__name__)
 
 
 class AIClient(ABC):
@@ -176,12 +178,13 @@ class OpenAICompatibleClient(AIClient):
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0,
+            "stream": False,
         }
         validation_error: ValidationError | ValueError | TypeError | None = None
         for structured_attempt in range(2):
             content = await self._request_content(payload)
             try:
-                return schema.model_validate_json(content)
+                return schema.model_validate_json(_strip_json_fence(content))
             except (ValidationError, ValueError, TypeError) as exc:
                 validation_error = exc
                 if structured_attempt == 0:
@@ -195,7 +198,16 @@ class OpenAICompatibleClient(AIClient):
             try:
                 response = await self._client.post("/chat/completions", json=payload)
                 response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
+                try:
+                    data = response.json()
+                except json.JSONDecodeError as exc:
+                    _log_invalid_json_response(response, attempt, self.max_retries)
+                    if attempt == self.max_retries:
+                        raise AIProviderError(
+                            "The AI provider returned an invalid JSON response"
+                        ) from exc
+                    continue
+                content = data["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise TypeError("AI response content must be a JSON string")
                 return content
@@ -222,6 +234,34 @@ class OpenAICompatibleClient(AIClient):
 def create_ai_client(settings: Settings) -> AIClient:
     if settings.llm_provider.lower() == "stub":
         return StubAIClient()
-    if settings.llm_provider.lower() in {"openai", "openai_compatible"}:
+    if settings.llm_provider.lower() in {"openai", "openai_compatible", "reqforge-v1"}:
         return OpenAICompatibleClient(settings)
     raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
+
+
+def _strip_json_fence(content: str) -> str:
+    cleaned = content.strip()
+    if not cleaned.startswith("```"):
+        return cleaned
+
+    first_newline = cleaned.find("\n")
+    if first_newline == -1 or not cleaned.endswith("```"):
+        return cleaned
+    return cleaned[first_newline + 1 : -3].strip()
+
+
+def _log_invalid_json_response(
+    response: httpx.Response, attempt: int, max_retries: int
+) -> None:
+    logger.warning(
+        "AI provider returned non-JSON HTTP 2xx response",
+        extra={
+            "http_status": response.status_code,
+            "content_type": response.headers.get("content-type"),
+            "content_length_header": response.headers.get("content-length"),
+            "response_content_length": len(response.content),
+            "response_body_is_blank": not response.content.strip(),
+            "provider_attempt": attempt + 1,
+            "provider_max_attempts": max_retries + 1,
+        },
+    )
