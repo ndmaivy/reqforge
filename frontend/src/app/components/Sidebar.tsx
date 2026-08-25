@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  LayoutDashboard, MessageSquare, Users, FileText, BarChart3,
+  LayoutDashboard, MessageSquare, Users, FileText, BarChart3, ClipboardCheck,
   ChevronDown, FolderOpen, Settings, HelpCircle,
   Search, Check, ArrowUpRight,
 } from "lucide-react";
@@ -9,7 +9,7 @@ import type { Project } from "../data/mockData";
 import { useLanguage } from "../i18n/LanguageContext";
 import type { AuthUser } from "../../types/auth";
 
-type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis";
+type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports";
 
 const ACTIVE_BG = "#EFF6FF";
 const ACTIVE_TEXT = "#1E3A8A";
@@ -87,6 +87,7 @@ export function Sidebar({
     { id: "user-needs", label: tr.nav.userNeeds, icon: Users },
     { id: "requirements", label: tr.nav.requirements, icon: FileText },
     { id: "analysis", label: tr.nav.analysis, icon: BarChart3 },
+    { id: "reports", label: tr.nav.reports, icon: ClipboardCheck },
   ];
 
   const badges: Partial<Record<Screen, number>> = {

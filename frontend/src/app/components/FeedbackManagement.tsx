@@ -5,7 +5,7 @@ import type { FeedbackItem, FeedbackCategory, FeedbackSource, FeedbackStatus, Pr
 import { Modal, ConfirmDialog } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
 import { getErrorMessage } from "../../services/api";
-import type { FeedbackCreateRequest } from "../../types/feedback";
+import type { FeedbackCreateRequest, FeedbackImportResult } from "../../types/feedback";
 import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../../types/analysis";
 import { useLanguage } from "../i18n/LanguageContext";
 
@@ -520,6 +520,7 @@ interface FeedbackManagementProps {
   loadError: string | null;
   onRetry: () => void | Promise<void>;
   onRecordFeedback: (payload: FeedbackCreateRequest) => Promise<void>;
+  onImportFeedback: (file: File) => Promise<FeedbackImportResult>;
   onLoadFeedbackDetail: (feedbackId: string) => Promise<FeedbackItem>;
   onSaveFeedback: (feedbackId: string, content: string, category: FeedbackCategory) => Promise<FeedbackItem>;
   onArchiveFeedback: (feedbackId: string) => Promise<FeedbackItem>;
@@ -536,7 +537,7 @@ interface FeedbackManagementProps {
 
 export function FeedbackManagement({
   project, feedback, loading, loadError, onRetry,
-  onRecordFeedback, onLoadFeedbackDetail, onSaveFeedback, onArchiveFeedback,
+  onRecordFeedback, onImportFeedback, onLoadFeedbackDetail, onSaveFeedback, onArchiveFeedback,
   onAddFeedback, onAnalyzeFeedback, onNavigate,
   showAddModal = false, showImportModal = false, showPublicLinkModal = false,
   onCloseAddModal, onCloseImportModal, onClosePublicLinkModal,
@@ -558,12 +559,24 @@ export function FeedbackManagement({
   const [showPublicForm, setShowPublicForm] = useState(false);
 
   const [importStep, setImportStep] = useState<"idle" | "uploading" | "done">("idle");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<FeedbackImportResult | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const showRecord = showAddModal || localShowRecord;
   const showImport = showImportModal || localShowImport;
   const showPublicLinkVisible = showPublicLink || showPublicLinkModal;
   const closeRecord = () => { setLocalShowRecord(false); onCloseAddModal?.(); setRecordForm(emptyRecord()); setRecordError(""); setRecordSubmitError(null); };
-  const closeImport = () => { setLocalShowImport(false); onCloseImportModal?.(); setImportStep("idle"); };
+  const closeImport = () => {
+    setLocalShowImport(false);
+    onCloseImportModal?.();
+    setImportStep("idle");
+    setImportFile(null);
+    setImportResult(null);
+    setImportError(null);
+    if (importInputRef.current) importInputRef.current.value = "";
+  };
   const closePublicLinkVisible = () => { setShowPublicLink(false); onClosePublicLinkModal?.(); };
 
   // Record Feedback form
@@ -661,48 +674,33 @@ export function FeedbackManagement({
     }
   };
 
-  const handleImport = () => {
+  const selectImportFile = (file: File | null) => {
+    if (!file) return;
+    if (!/\.(csv|xlsx)$/i.test(file.name)) {
+      setImportFile(null);
+      setImportError(tr.feedback.unsupportedImportFile);
+      return;
+    }
+    setImportFile(file);
+    setImportError(null);
+  };
+
+  const handleImport = async () => {
+    if (!importFile) {
+      setImportError(tr.feedback.fileRequired);
+      return;
+    }
     setImportStep("uploading");
-    setTimeout(() => {
+    setImportError(null);
+    try {
+      const result = await onImportFeedback(importFile);
+      setImportResult(result);
       setImportStep("done");
-      const now = "Aug 19, 2026";
-      const ts = Date.now();
-      const templates = [
-        { text: "The event calendar is very hard to navigate on mobile.", category: "Usability" as const, context: "Event Calendar" },
-        { text: "Please send email notifications about admission application status.", category: "Feature Request" as const },
-        { text: "Faculty photos are missing for some departments.", category: "Bug" as const, context: "Faculty Directory" },
-        { text: "The scholarship page has not been updated for the new academic year.", category: "Complaint" as const, context: "Scholarship Info" },
-        { text: "I cannot find the course registration deadline on the website.", category: "Usability" as const, context: "Registration" },
-        { text: "The search function returns too many irrelevant results.", category: "Usability" as const },
-        { text: "News section lacks filtering by category or date.", category: "Feature Request" as const, context: "News" },
-        { text: "The tuition calculator is broken on Safari.", category: "Bug" as const, context: "Tuition" },
-        { text: "Student services page loads very slowly.", category: "Usability" as const, context: "Student Services" },
-        { text: "It would be helpful to have a chatbot for common questions.", category: "Suggestion" as const },
-        { text: "The admissions checklist is confusing and not step-by-step.", category: "Usability" as const, context: "Admissions" },
-        { text: "Contact information for departments is hard to find.", category: "Usability" as const },
-        { text: "PDF documents are not mobile-friendly.", category: "Usability" as const },
-        { text: "I had trouble submitting my application because the form timed out.", category: "Bug" as const, context: "Registration" },
-        { text: "The campus map does not load on older browsers.", category: "Bug" as const },
-        { text: "Add a dark mode option for the student portal.", category: "Feature Request" as const },
-        { text: "Line spacing in program descriptions is too tight to read comfortably.", category: "Usability" as const, context: "Programs" },
-        { text: "There is no way to compare multiple programs side by side.", category: "Feature Request" as const, context: "Programs" },
-        { text: "The homepage hero image makes text above the fold unreadable.", category: "Usability" as const },
-        { text: "International student requirements are buried too deep in the site structure.", category: "Usability" as const, context: "Admissions" },
-      ];
-      const batch: FeedbackItem[] = templates.map((t, i) => ({
-        id: `FB-IMP-${ts}-${i + 1}`,
-        projectId: project.id,
-        text: t.text,
-        category: t.category,
-        source: "Survey" as const,
-        status: "New" as const,
-        date: now,
-        isNoise: false,
-        context: t.context,
-      }));
-      batch.forEach((b) => onAddFeedback(b));
-      setTimeout(() => { closeImport(); toast.success("20 feedback records imported"); }, 600);
-    }, 2000);
+      toast.success(tr.feedback.importedSuccess(result.imported_count));
+    } catch (error) {
+      setImportStep("idle");
+      setImportError(getErrorMessage(error, tr.feedback.importError));
+    }
   };
 
   const handlePublicFormSubmit = (text: string, context: string, userSegment: string) => {
@@ -1004,43 +1002,54 @@ export function FeedbackManagement({
 
       {/* Import Modal */}
       {showImport && (
-        <Modal title="Import Feedback" subtitle="Upload a CSV or Excel file to bulk-import feedback records" onClose={closeImport}>
+        <Modal title={tr.feedback.importTitle} subtitle={tr.feedback.importSubtitle} onClose={closeImport}>
           <div className="px-5 py-5">
             {importStep === "idle" && (
               <div>
-                <div className="border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center mb-4 cursor-pointer hover:bg-blue-50 transition-colors"
-                  style={{ borderColor: "#BFDBFE" }} onClick={handleImport}>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="hidden"
+                  onChange={(event) => selectImportFile(event.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  onClick={() => importInputRef.current?.click()}
+                  className="w-full border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center mb-4 hover:bg-blue-50 transition-colors"
+                  style={{ borderColor: "#BFDBFE" }}
+                >
                   <Upload size={24} style={{ color: "#1E3A8A", marginBottom: "8px" }} />
-                  <p style={{ fontSize: "13.5px", fontWeight: 500, color: "var(--foreground)", marginBottom: "4px" }}>Click to upload or drag and drop</p>
-                  <p style={{ fontSize: "12px", color: "#94A3B8" }}>CSV or Excel (.xlsx) — max 10 MB</p>
-                </div>
-                <div className="space-y-2">
-                  {["student_survey_august.xlsx", "feedback_batch_aug2026.csv"].map((name) => (
-                    <button key={name} onClick={handleImport}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md border hover:bg-gray-50 transition-colors"
-                      style={{ borderColor: "var(--border)" }}>
-                      <div className="w-7 h-7 rounded flex items-center justify-center" style={{ background: "#EFF6FF" }}>
-                        <Upload size={13} style={{ color: "#1E3A8A" }} />
-                      </div>
-                      <span style={{ fontSize: "13px", color: "var(--foreground)" }}>{name}</span>
-                      <span style={{ fontSize: "11.5px", color: "#94A3B8", marginLeft: "auto" }}>Recent</span>
-                    </button>
-                  ))}
+                  <p style={{ fontSize: "13.5px", fontWeight: 500, color: "var(--foreground)", marginBottom: "4px" }}>{tr.feedback.selectImportFile}</p>
+                  <p style={{ fontSize: "12px", color: "#94A3B8" }}>{tr.feedback.importHint}</p>
+                </button>
+                {importFile && (
+                  <div className="mb-3 rounded-md border px-3 py-2" style={{ borderColor: "var(--border)", fontSize: "12.5px", color: "#475569" }}>
+                    {tr.feedback.selectedFile}: {importFile.name}
+                  </div>
+                )}
+                {importError && (
+                  <p className="mb-3 rounded-md px-3 py-2" style={{ background: "#FEF2F2", color: "#B91C1C", fontSize: "12px" }}>{importError}</p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <button onClick={closeImport} className="rounded-md border px-3 py-2" style={{ borderColor: "var(--border)", color: "#475569", fontSize: "12px" }}>{tr.common.cancel}</button>
+                  <button onClick={() => void handleImport()} disabled={!importFile} className="rounded-md px-3 py-2 text-white disabled:opacity-50" style={{ background: "var(--primary)", fontSize: "12px", fontWeight: 600 }}>{tr.feedback.importFile}</button>
                 </div>
               </div>
             )}
             {importStep === "uploading" && (
               <div className="flex flex-col items-center py-8">
                 <Loader size={28} className="animate-spin mb-4" style={{ color: "#1E3A8A" }} />
-                <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--foreground)", marginBottom: "4px" }}>Importing student_survey_august.xlsx</p>
-                <p style={{ fontSize: "12.5px", color: "#94A3B8" }}>Processing 20 records...</p>
+                <p style={{ fontSize: "14px", fontWeight: 500, color: "var(--foreground)", marginBottom: "4px" }}>{tr.feedback.importingFile(importFile?.name ?? "")}</p>
+                <p style={{ fontSize: "12.5px", color: "#94A3B8" }}>{tr.feedback.importingHint}</p>
               </div>
             )}
             {importStep === "done" && (
               <div className="flex flex-col items-center py-8">
                 <CheckCircle size={28} style={{ color: "#059669", marginBottom: "8px" }} />
-                <p style={{ fontSize: "14px", fontWeight: 600, color: "#059669" }}>Import successful</p>
-                <p style={{ fontSize: "12.5px", color: "#94A3B8", marginTop: "4px" }}>20 feedback records added to the Feedback Inbox</p>
+                <p style={{ fontSize: "14px", fontWeight: 600, color: "#059669" }}>{tr.feedback.importDone}</p>
+                <p style={{ fontSize: "12.5px", color: "#94A3B8", marginTop: "4px" }}>{tr.feedback.importedSuccess(importResult?.imported_count ?? 0)}</p>
+                <button onClick={closeImport} className="mt-4 rounded-md border px-3 py-2" style={{ borderColor: "var(--border)", color: "#475569", fontSize: "12px" }}>{tr.feedback.close}</button>
               </div>
             )}
           </div>

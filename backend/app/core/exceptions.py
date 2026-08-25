@@ -66,6 +66,11 @@ class EmptyAnalysisInput(DomainError):
     status_code = 422
 
 
+class BaselineCreationError(DomainError):
+    code = "BASELINE_CREATION_ERROR"
+    status_code = 422
+
+
 class ImportFileError(DomainError):
     code = "IMPORT_FILE_ERROR"
     status_code = 422

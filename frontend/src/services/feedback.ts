@@ -1,6 +1,11 @@
 import { apiRequest } from "./api";
 import type { DataResponse, ListResponse } from "./api";
-import type { FeedbackCreateRequest, FeedbackDto, FeedbackUpdateRequest } from "../types/feedback";
+import type {
+  FeedbackCreateRequest,
+  FeedbackDto,
+  FeedbackImportResult,
+  FeedbackUpdateRequest,
+} from "../types/feedback";
 
 const FEEDBACK_PATH = "/api/v1/feedback";
 
@@ -25,6 +30,19 @@ export async function createFeedback(
       method: "POST",
       body: JSON.stringify(payload),
     },
+  );
+  return response.data;
+}
+
+export async function importFeedback(
+  projectId: string,
+  file: File,
+): Promise<FeedbackImportResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await apiRequest<DataResponse<FeedbackImportResult>>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/feedback/import`,
+    { method: "POST", body: formData },
   );
   return response.data;
 }

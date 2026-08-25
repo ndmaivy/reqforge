@@ -16,6 +16,14 @@ Feedback
 User Needs
    ↓
 Requirements
+   ↓
+Validation and human approval
+   ↓
+Project Report (live state)
+   ↓
+Requirement Baseline (immutable snapshot)
+   ↓
+Printable report / CSV handoff
 ```
 
 ## 1.2. Input
@@ -41,6 +49,33 @@ AI hỗ trợ:
 - Requirements;
 - Source Evidence;
 - AI Issues / Warnings.
+
+### Final output and handoff
+
+The final delivery flow is intentionally based on human-approved requirements rather than raw
+AI output:
+
+```text
+Approved Requirements
+   ↓
+Requirement Baseline
+   ↓
+Project Report
+   ↓
+Printable Report / CSV
+   ↓
+Stakeholder / Development Team
+```
+
+- **Current Project Report** is a live aggregation of a project's feedback, confirmed user needs,
+  approved requirements, traceability, and validation issues.
+- **Requirement Baseline** is an immutable, versioned snapshot of that report. Later workflow
+  changes do not change older baselines.
+- **Printable Report / Save as PDF** is the management and stakeholder handoff view. It uses the
+  browser print path so it remains reliable in the Render deployment and supports the configured
+  Vietnamese-capable application font stack.
+- **CSV** is the structured development/backlog handoff. It exports approved requirements from the
+  selected baseline snapshot, never from later live project data.
 
 ## 1.5. Functional Scope
 

@@ -26,10 +26,12 @@ class Project(TimestampMixin, Base):
     user_needs: Mapped[list[UserNeed]] = relationship(back_populates="project")
     requirements: Mapped[list[Requirement]] = relationship(back_populates="project")
     analysis_runs: Mapped[list[AnalysisRun]] = relationship(back_populates="project")
+    baselines: Mapped[list[RequirementBaseline]] = relationship(back_populates="project")
 
 
 from app.db.models.analysis_run import AnalysisRun  # noqa: E402
 from app.db.models.feedback import Feedback  # noqa: E402
 from app.db.models.requirement import Requirement  # noqa: E402
+from app.db.models.requirement_baseline import RequirementBaseline  # noqa: E402
 from app.db.models.user import User  # noqa: E402
 from app.db.models.user_need import UserNeed  # noqa: E402

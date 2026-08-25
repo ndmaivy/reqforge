@@ -96,6 +96,8 @@ class FeedbackService:
         created: list[Feedback] = []
         errors: list[dict[str, object]] = []
         for row_number, row in enumerate(rows, start=2):
+            if self._is_empty_row(row):
+                continue
             try:
                 payload = FeedbackCreate.model_validate(
                     {
@@ -114,10 +116,16 @@ class FeedbackService:
         if errors:
             self.session.rollback()
             raise ImportFileError("One or more import rows are invalid", {"rows": errors})
+        if not created:
+            raise ImportFileError("The import file contains no valid feedback rows")
         self.session.commit()
         for item in created:
             self.session.refresh(item)
         return created
+
+    @staticmethod
+    def _is_empty_row(row: dict[str, object]) -> bool:
+        return all(value is None or not str(value).strip() for value in row.values())
 
     @staticmethod
     def _read_csv(content: bytes) -> list[dict[str, object]]:

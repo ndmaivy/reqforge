@@ -89,3 +89,57 @@ def test_feedback_xlsx_import(client):
     )
     assert response.status_code == 201
     assert response.json()["data"]["imported_count"] == 1
+
+
+def test_feedback_import_validates_headers_dates_and_empty_files(client):
+    project_id = create_project(client)["id"]
+    endpoint = f"/api/v1/projects/{project_id}/feedback/import"
+
+    missing_content = client.post(
+        endpoint,
+        files={"file": ("feedback.csv", "message,source\nMissing header,SURVEY\n", "text/csv")},
+    )
+    empty_file = client.post(
+        endpoint,
+        files={"file": ("feedback.csv", "content,source,feedback_date\n", "text/csv")},
+    )
+    invalid_date = client.post(
+        endpoint,
+        files={
+            "file": (
+                "feedback.csv",
+                "content,source,feedback_date\nValid row,SURVEY,not-a-date\n",
+                "text/csv",
+            )
+        },
+    )
+
+    assert missing_content.status_code == 422
+    assert empty_file.status_code == 422
+    assert invalid_date.status_code == 422
+    assert client.get(f"/api/v1/projects/{project_id}/feedback").json()["meta"]["total"] == 0
+
+
+def test_feedback_xlsx_import_ignores_completely_empty_rows(client):
+    project_id = create_project(client)["id"]
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["content", "source", "feedback_date"])
+    sheet.append(["Actual workbook feedback", "APP_REVIEW", "2026-07-01T08:00:00"])
+    sheet.append([None, None, None])
+    stream = BytesIO()
+    workbook.save(stream)
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/feedback/import",
+        files={
+            "file": (
+                "feedback.xlsx",
+                stream.getvalue(),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["data"]["imported_count"] == 1

@@ -8,7 +8,7 @@ import type { Lang } from "../i18n/translations";
 import type { AuthUser } from "../../types/auth";
 
 type Mode = "light" | "dark";
-type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis";
+type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports";
 
 const LANGS: { code: Lang; label: string; native: string; flag: string }[] = [
   { code: "EN", label: "English", native: "English", flag: "🇺🇸" },
@@ -70,6 +70,7 @@ export function TopBar({ project, activeScreen, onBackToProjects, user, onLogout
     "user-needs": tr.nav.userNeeds,
     requirements: tr.nav.requirements,
     analysis: tr.nav.analysis,
+    reports: tr.nav.reports,
   };
 
   return (

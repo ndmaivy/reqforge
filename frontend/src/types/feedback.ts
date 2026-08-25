@@ -24,3 +24,8 @@ export interface FeedbackUpdateRequest {
   source?: string | null;
   feedback_date?: string | null;
 }
+
+export interface FeedbackImportResult {
+  imported_count: number;
+  feedback_ids: string[];
+}

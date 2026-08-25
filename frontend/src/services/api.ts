@@ -117,6 +117,50 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
   return body as T;
 }
 
+export async function apiDownload(path: string): Promise<void> {
+  const headers = new Headers({ Accept: "text/csv" });
+  const accessToken = getAccessToken();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { headers });
+  } catch (error) {
+    throw new ApiError(
+      "Cannot connect to the ReqForge API. Check that the backend is running.",
+      "NETWORK_ERROR",
+      null,
+      error,
+    );
+  }
+
+  if (!response.ok) {
+    const body = await readResponseBody(response);
+    if (response.status === 401) {
+      clearAccessToken();
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
+    const apiError = typeof body === "object" && body !== null ? (body as ErrorResponse).error : undefined;
+    throw new ApiError(
+      apiError?.message || `Request failed with status ${response.status}`,
+      apiError?.code || "HTTP_ERROR",
+      response.status,
+      apiError?.details,
+    );
+  }
+
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const filename = /filename="?([^";]+)"?/.exec(contentDisposition)?.[1] || "requirements.csv";
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }

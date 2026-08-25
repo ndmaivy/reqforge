@@ -9,6 +9,7 @@ import { FeedbackManagement } from "./components/FeedbackManagement";
 import { UserNeeds } from "./components/UserNeeds";
 import { Requirements } from "./components/Requirements";
 import { Analysis } from "./components/Analysis";
+import { Reports } from "./components/Reports";
 import { AuthPage } from "./components/AuthPage";
 import {
   INITIAL_ISSUES, INITIAL_ACTIVITIES,
@@ -37,10 +38,11 @@ import {
   archiveFeedback as archiveFeedbackRequest,
   createFeedback as createFeedbackRequest,
   getFeedback as getFeedbackRequest,
+  importFeedback as importFeedbackRequest,
   listFeedback,
   updateFeedback as updateFeedbackRequest,
 } from "../services/feedback";
-import type { FeedbackCreateRequest, FeedbackDto } from "../types/feedback";
+import type { FeedbackCreateRequest, FeedbackDto, FeedbackImportResult } from "../types/feedback";
 import {
   pollAnalysisRun,
   startFeedbackAnalysis,
@@ -80,7 +82,7 @@ import type {
   RequirementViewModel,
 } from "../types/requirement";
 
-type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis";
+type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports";
 
 const supportedPlatforms: Platform[] = ["Web", "Mobile", "Desktop", "Web + Mobile", "Other"];
 const supportedFeedbackSources: FeedbackSource[] = [
@@ -353,6 +355,13 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     await loadFeedback(activeProject.id);
   };
 
+  const importFeedback = async (file: File): Promise<FeedbackImportResult> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const result = await importFeedbackRequest(activeProject.id, file);
+    await loadFeedback(activeProject.id);
+    return result;
+  };
+
   const loadFeedbackDetail = async (feedbackId: string): Promise<FeedbackItem> =>
     toUiFeedback(await getFeedbackRequest(feedbackId));
 
@@ -601,6 +610,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               loadError={feedbackError}
               onRetry={() => loadFeedback(proj.id)}
               onRecordFeedback={recordFeedback}
+              onImportFeedback={importFeedback}
               onLoadFeedbackDetail={loadFeedbackDetail}
               onSaveFeedback={saveFeedback}
               onArchiveFeedback={archiveFeedback}
@@ -660,6 +670,8 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onUpdateIssue={updateIssue}
             />
           )}
+
+          {activeScreen === "reports" && <Reports projectId={proj.id} />}
         </div>
       </div>
 
