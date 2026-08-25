@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_timeout_seconds: int = Field(default=30, ge=1, le=120)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
+    jwt_secret_key: str | None = None
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = Field(default=1440, ge=1, le=60 * 24 * 30)
     log_level: str = "INFO"
     cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
     max_import_bytes: int = Field(default=5_000_000, ge=1_024, le=50_000_000)

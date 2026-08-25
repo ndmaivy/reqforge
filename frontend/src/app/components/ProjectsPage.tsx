@@ -103,10 +103,10 @@ export function ProjectsPage({
       setShowCreate(false);
       setForm(emptyForm());
       setErrors({});
-      toast.success("Project created");
+      toast.success(tr.projects.created);
       void onOpenProject(newProject);
     } catch (error) {
-      setCreateError(getErrorMessage(error, "Unable to create project."));
+      setCreateError(getErrorMessage(error, tr.projects.createError));
     } finally {
       setCreating(false);
     }
@@ -164,18 +164,18 @@ export function ProjectsPage({
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="w-6 h-6 rounded-full border-2 border-blue-800 border-t-transparent animate-spin mb-4" />
-            <p style={{ fontSize: "13.5px", color: "#64748B" }}>Loading projects...</p>
+            <p style={{ fontSize: "13.5px", color: "#64748B" }}>{tr.projects.loading}</p>
           </div>
         ) : loadError ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--foreground)", marginBottom: "4px" }}>Unable to load projects</p>
+            <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--foreground)", marginBottom: "4px" }}>{tr.projects.loadError}</p>
             <p style={{ fontSize: "13px", color: "#64748B", marginBottom: "14px" }}>{loadError}</p>
             <button
               onClick={() => void onRetry()}
               className="px-4 py-2 rounded-md border hover:bg-gray-50 transition-colors"
               style={{ borderColor: "var(--border)", fontSize: "13px", color: "#1E3A8A" }}
             >
-              Retry
+              {tr.projects.retry}
             </button>
           </div>
         ) : filtered.length === 0 ? (

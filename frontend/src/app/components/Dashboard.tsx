@@ -33,7 +33,7 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
   const newFeedback = feedback.filter((f) => f.status === "New").length;
 
   const kpis = [
-    { label: "Feedback Inbox", value: feedback.length, delta: `${newFeedback} new`, icon: MessageSquare, color: "#1E3A8A", bg: "#EFF6FF", screen: "feedback" },
+    { label: tr.nav.feedback, value: feedback.length, delta: `${newFeedback} ${tr.dashboard.new.toLowerCase()}`, icon: MessageSquare, color: "#1E3A8A", bg: "#EFF6FF", screen: "feedback" },
     { label: tr.dashboard.userNeeds, value: needs.length, delta: `${confirmedNeeds} ${tr.dashboard.confirmed}`, icon: Users, color: "#7C3AED", bg: "#F5F3FF", screen: "user-needs" },
     { label: tr.dashboard.requirements, value: requirements.length, delta: `${approvedCount} ${tr.dashboard.approved}`, icon: FileText, color: "#059669", bg: "#ECFDF5", screen: "requirements" },
     { label: tr.dashboard.openIssues, value: openIssues, delta: tr.dashboard.needsReview, icon: AlertTriangle, color: "#D97706", bg: "#FFFBEB", screen: "analysis" },
@@ -115,11 +115,11 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
               <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>{tr.dashboard.quickActions}</p>
               <div className="flex flex-wrap gap-2">
                 {[
-                  { label: "Record Feedback", icon: Plus, action: onOpenAddFeedback },
-                  { label: "Import Feedback", icon: Upload, action: onOpenImport },
-                  { label: "Open Public Feedback Form", icon: Globe, action: () => { onNavigate("feedback"); onOpenPublicLink?.(); } },
-                  { label: "Analyze New Feedback", icon: Sparkles, action: onRunAnalysis },
-                  { label: "Generate Requirements", icon: FileText, action: onOpenGenerateReqs },
+                  { label: tr.feedback.add, icon: Plus, action: onOpenAddFeedback },
+                  { label: tr.feedback.import, icon: Upload, action: onOpenImport },
+                  { label: tr.dashboard.publicFeedback, icon: Globe, action: () => { onNavigate("feedback"); onOpenPublicLink?.(); } },
+                  { label: tr.dashboard.analyzeAI, icon: Sparkles, action: onRunAnalysis },
+                  { label: tr.dashboard.generateReqs, icon: FileText, action: onOpenGenerateReqs },
                 ].map(({ label, icon: Icon, action }) => (
                   <button key={label} onClick={action} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-colors hover:bg-white" style={{ borderColor: "var(--border)", fontSize: "12px", color: "#374151", background: "#fff" }}>
                     <Icon size={12} style={{ color: "#1E3A8A" }} /> {label}
@@ -135,9 +135,9 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
               <div className="px-4 py-3.5 border-b" style={{ borderColor: "var(--border)" }}>
                 <div className="flex items-center gap-1.5">
                   <TrendingUp size={13} style={{ color: "#1E3A8A" }} />
-                  <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--foreground)" }}>Need Trends</h2>
+                  <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--foreground)" }}>{tr.dashboard.needTrends}</h2>
                 </div>
-                <p style={{ fontSize: "11.5px", color: "var(--muted-foreground)", marginTop: "1px" }}>Last 7 weeks</p>
+                <p style={{ fontSize: "11.5px", color: "var(--muted-foreground)", marginTop: "1px" }}>{tr.dashboard.lastSevenWeeks}</p>
               </div>
               <div className="p-4">
                 <ResponsiveContainer width="100%" height={110}>
@@ -165,13 +165,13 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
                 <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: "#1E3A8A" }}>
                   <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                 </div>
-                <p style={{ fontSize: "12px", fontWeight: 600, color: "#1E3A8A" }}>AI Ready</p>
+              <p style={{ fontSize: "12px", fontWeight: 600, color: "#1E3A8A" }}>{tr.dashboard.aiReady}</p>
               </div>
               {[
-                { label: "Data prepared", done: true },
-                { label: "Feedback classified", done: true },
-                { label: "Needs identified", done: true },
-                { label: "Awaiting validation", done: false, active: true },
+                { label: tr.dashboard.dataPrepared, done: true },
+                { label: tr.dashboard.feedbackClassified, done: true },
+                { label: tr.dashboard.needsIdentified, done: true },
+                { label: tr.dashboard.awaitingValidation, done: false, active: true },
               ].map((s) => (
                 <div key={s.label} className="flex items-center gap-2 mb-1.5">
                   {s.done ? <CheckCircle size={11} style={{ color: "#059669" }} /> : s.active ? <div className="w-3 h-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0" /> : <Circle size={11} style={{ color: "#CBD5E1" }} />}

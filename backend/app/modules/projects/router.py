@@ -5,8 +5,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_session
+from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
+from app.db.models import User
 from app.modules.projects.schemas import ProjectCreate, ProjectResponse, ProjectUpdate
 from app.modules.projects.service import ProjectService
 
@@ -20,9 +21,11 @@ router = APIRouter(prefix="/projects", tags=["Projects"])
     summary="Create a project",
 )
 def create_project(
-    payload: ProjectCreate, session: Session = Depends(get_session)
+    payload: ProjectCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[ProjectResponse]:
-    project = ProjectService(session).create(payload)
+    project = ProjectService(session).create(payload, current_user.id)
     return DataResponse(data=ProjectResponse.model_validate(project))
 
 
@@ -31,8 +34,9 @@ def list_projects(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> ListResponse[ProjectResponse]:
-    projects, total = ProjectService(session).list(page, page_size)
+    projects, total = ProjectService(session).list(page, page_size, current_user.id)
     return ListResponse(
         data=[ProjectResponse.model_validate(project) for project in projects],
         meta=PageMeta(page=page, page_size=page_size, total=total),
@@ -45,9 +49,11 @@ def list_projects(
     summary="Get project detail",
 )
 def get_project(
-    project_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[ProjectResponse]:
-    project = ProjectService(session).get(project_id)
+    project = ProjectService(session).get(project_id, current_user.id)
     return DataResponse(data=ProjectResponse.model_validate(project))
 
 
@@ -57,7 +63,10 @@ def get_project(
     summary="Update a project",
 )
 def update_project(
-    project_id: UUID, payload: ProjectUpdate, session: Session = Depends(get_session)
+    project_id: UUID,
+    payload: ProjectUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[ProjectResponse]:
-    project = ProjectService(session).update(project_id, payload)
+    project = ProjectService(session).update(project_id, payload, current_user.id)
     return DataResponse(data=ProjectResponse.model_validate(project))

@@ -1024,7 +1024,7 @@ export function Requirements({
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleGenerate = async () => {
-    if (genSelected.size === 0) { toast.error("Please select at least one User Need"); return; }
+    if (genSelected.size === 0) { toast.error(tr.requirements.selectNeed); return; }
     const selectedCount = genSelected.size;
     setGenerating(true);
     const controller = new AbortController();
@@ -1036,7 +1036,7 @@ export function Requirements({
       toast.success(selectedCount === 1 ? "1 candidate requirement generated" : `${selectedCount} candidate requirements generated`);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
-        toast.error(getErrorMessage(error, "Unable to generate requirements."));
+        toast.error(getErrorMessage(error, tr.requirements.generationError));
       }
     } finally {
       generationControllerRef.current = null;
@@ -1046,9 +1046,9 @@ export function Requirements({
 
   const handleCreate = async () => {
     const errs: Partial<Record<string, string>> = {};
-    if (!createForm.title.trim()) errs.title = "Title is required";
-    if (!createForm.description.trim()) errs.description = "Description is required";
-    if (!createForm.sourceOption) errs.sourceOption = "Source is required";
+    if (!createForm.title.trim()) errs.title = `${tr.common.title} ${tr.common.required}`;
+    if (!createForm.description.trim()) errs.description = `${tr.common.description} ${tr.common.required}`;
+    if (!createForm.sourceOption) errs.sourceOption = `${tr.common.source} ${tr.common.required}`;
     if (Object.keys(errs).length > 0) { setCreateErrors(errs); return; }
     setCreating(true);
     try {
@@ -1061,9 +1061,9 @@ export function Requirements({
       setShowCreate(false);
       setCreateForm(emptyCreateForm());
       setCreateErrors({});
-      toast.success("Requirement created");
+      toast.success(tr.requirements.created);
     } catch (error) {
-      toast.error(getErrorMessage(error, "Unable to create requirement."));
+      toast.error(getErrorMessage(error, tr.requirements.createError));
     } finally {
       setCreating(false);
     }
@@ -1072,7 +1072,7 @@ export function Requirements({
   const openRequirement = async (requirementId: string) => {
     if (detailLoadingId) return;
     setDetailLoadingId(requirementId);
-    const toastId = toast.loading("Loading requirement details...");
+    const toastId = toast.loading(tr.requirements.detailsLoading);
     try {
       const detail = await onLoadRequirementDetail(requirementId);
       setSelected(detail);
@@ -1081,7 +1081,7 @@ export function Requirements({
       void refreshIssues(requirementId);
       toast.dismiss(toastId);
     } catch (error) {
-      toast.error(getErrorMessage(error, "Unable to load requirement details."), { id: toastId });
+      toast.error(getErrorMessage(error, tr.requirements.detailsError), { id: toastId });
     } finally {
       setDetailLoadingId(null);
     }
@@ -1093,14 +1093,14 @@ export function Requirements({
     try {
       setValidationIssues(await onLoadRequirementIssues(requirementId));
     } catch (error) {
-      setIssuesError(getErrorMessage(error, "Unable to load validation issues."));
+      setIssuesError(getErrorMessage(error, tr.requirements.validationIssuesError));
     } finally {
       setIssuesLoading(false);
     }
   };
 
   const validateSelected = async (signal: AbortSignal): Promise<AnalysisRunDto> => {
-    if (!selected) throw new Error("No requirement selected.");
+    if (!selected) throw new Error(tr.requirements.noRequirementSelected);
     const result = await onValidateRequirement(selected.id, signal);
     setSelected(result.requirement);
     setValidationIssues(result.issues);
@@ -1115,7 +1115,7 @@ export function Requirements({
       setSelected(await onSaveRequirement(selected.id, payload));
       return true;
     } catch (error) {
-      toast.error(getErrorMessage(error, "Unable to update requirement."));
+      toast.error(getErrorMessage(error, tr.requirements.updateError));
       return false;
     } finally {
       setBusyRequirementId(null);
@@ -1130,7 +1130,7 @@ export function Requirements({
       if (selected?.id === requirementId) setSelected(updated);
       return true;
     } catch (error) {
-      toast.error(getErrorMessage(error, "Unable to approve requirement."));
+      toast.error(getErrorMessage(error, tr.requirements.approveError));
       return false;
     } finally {
       setBusyRequirementId(null);
@@ -1145,7 +1145,7 @@ export function Requirements({
       if (selected?.id === requirementId) setSelected(updated);
       return true;
     } catch (error) {
-      toast.error(getErrorMessage(error, "Unable to reject requirement."));
+      toast.error(getErrorMessage(error, tr.requirements.rejectError));
       return false;
     } finally {
       setBusyRequirementId(null);
@@ -1185,18 +1185,18 @@ export function Requirements({
           <div className="flex items-center gap-2">
             <div className="relative group">
               <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-3.5 py-2 rounded-xl border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)", fontSize: "13px", fontWeight: 500, color: "var(--foreground)" }}>
-                <Plus size={13} /> Create Requirement
+                <Plus size={13} /> {tr.requirements.create}
               </button>
               <div className="absolute right-0 top-full mt-1 z-20 rounded-lg border shadow-md px-3 py-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: "#fff", borderColor: "var(--border)", fontSize: "11.5px", color: "#64748B", width: "260px", lineHeight: 1.5 }}>
-                Manually add a stakeholder-defined, policy-driven, or externally sourced requirement.
+                {tr.requirements.createHint}
               </div>
             </div>
             <div className="relative group">
               <button onClick={() => setLocalShowGen(true)} className="flex items-center gap-2 px-4 py-2 rounded-2xl text-white hover:opacity-90 transition-all" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
-                <Sparkles size={13} /> Generate from User Needs
+                <Sparkles size={13} /> {tr.requirements.generateFromNeeds}
               </button>
               <div className="absolute right-0 top-full mt-1 z-20 rounded-lg border shadow-md px-3 py-2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: "#fff", borderColor: "var(--border)", fontSize: "11.5px", color: "#64748B", width: "260px", lineHeight: 1.5 }}>
-                Create candidate requirements from confirmed User Needs and supporting feedback using AI.
+                {tr.requirements.generateHint}
               </div>
             </div>
           </div>
@@ -1219,7 +1219,7 @@ export function Requirements({
         {loadError && (
           <div className="mb-3 flex items-center justify-between rounded-lg border px-4 py-3" style={{ background: "#FEF2F2", borderColor: "#FCA5A5" }}>
             <span style={{ fontSize: "12.5px", color: "#B91C1C" }}>{loadError}</span>
-            <button onClick={() => void onRetry()} style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>Retry</button>
+            <button onClick={() => void onRetry()} style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>{tr.common.retry}</button>
           </div>
         )}
         <div className="rounded-lg border overflow-hidden" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
@@ -1241,7 +1241,7 @@ export function Requirements({
               )}
               {!loading && requirements.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center" style={{ fontSize: "13px", color: "#64748B" }}>No requirements found.</td>
+                  <td colSpan={7} className="px-4 py-12 text-center" style={{ fontSize: "13px", color: "#64748B" }}>{tr.requirements.noRequirements}</td>
                 </tr>
               )}
               {paginated.map((req, i) => {
@@ -1278,9 +1278,9 @@ export function Requirements({
                     </td>
                     <td className="px-4 py-3.5">
                       {req.issueCount > 0 ? (
-                        <div className="flex items-center gap-1.5"><AlertTriangle size={12} style={{ color: "#D97706" }} /><span style={{ fontSize: "12px", color: "#D97706", fontWeight: 600 }}>{req.issueCount} open</span></div>
+                        <div className="flex items-center gap-1.5"><AlertTriangle size={12} style={{ color: "#D97706" }} /><span style={{ fontSize: "12px", color: "#D97706", fontWeight: 600 }}>{req.issueCount} {tr.requirements.open}</span></div>
                       ) : (
-                        <div className="flex items-center gap-1.5"><CheckCircle size={12} style={{ color: "#059669" }} /><span style={{ fontSize: "12px", color: "#059669" }}>Clean</span></div>
+                        <div className="flex items-center gap-1.5"><CheckCircle size={12} style={{ color: "#059669" }} /><span style={{ fontSize: "12px", color: "#059669" }}>{tr.requirements.clean}</span></div>
                       )}
                     </td>
                     <td className="px-4 py-3.5">
@@ -1302,10 +1302,10 @@ export function Requirements({
           {/* Stats pills */}
           <div className="flex items-center gap-2">
             {[
-              { label: "Total", value: requirements.length, color: "#64748B", bg: "#F1F5F9" },
-              { label: "Approved", value: approved, color: "#059669", bg: "#ECFDF5" },
-              { label: "Needs Review", value: requirements.filter((r) => r.status === "Needs Review").length, color: "#D97706", bg: "#FFFBEB" },
-              { label: "Draft", value: requirements.filter((r) => r.status === "Draft").length, color: "#1E3A8A", bg: "#EFF6FF" },
+              { label: tr.common.total, value: requirements.length, color: "#64748B", bg: "#F1F5F9" },
+              { label: tr.status.Approved, value: approved, color: "#059669", bg: "#ECFDF5" },
+              { label: tr.dashboard.needsReview, value: requirements.filter((r) => r.status === "Needs Review").length, color: "#D97706", bg: "#FFFBEB" },
+              { label: tr.status.Draft, value: requirements.filter((r) => r.status === "Draft").length, color: "#1E3A8A", bg: "#EFF6FF" },
             ].map((s) => (
               <div key={s.label} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: s.bg }}>
                 <span style={{ fontSize: "12.5px", fontWeight: 600, color: s.color }}>{s.value}</span>

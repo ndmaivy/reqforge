@@ -56,7 +56,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2 py-0.5 rounded-md" style={{ background: sc.bg, color: sc.text, fontSize: "11px", fontWeight: 600 }}>{tr.status[need.status]}</span>
-          <span style={{ fontSize: "11.5px", fontWeight: 600, color: cc.color }}>{tr.userNeeds.confidence}: {cc.label}</span>
+            <span style={{ fontSize: "11.5px", fontWeight: 600, color: cc.color }}>{tr.userNeeds.confidence}: {tr.common[need.confidence.toLowerCase() as "high" | "medium" | "low"]}</span>
         </div>
         {editing ? (
           <>
@@ -81,7 +81,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
         <div className="rounded-lg p-3" style={{ background: "#F8FAFC", border: "1px solid var(--border)" }}>
           <div className="flex items-center gap-1.5 mb-1.5">
             <Sparkles size={11} style={{ color: "#1E3A8A" }} />
-            <span style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em" }}>AI Confidence</span>
+            <span style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em" }}>{tr.userNeeds.aiConfidence}</span>
             <span style={{ fontSize: "13px", fontWeight: 700, color: "#1E3A8A", marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
               {need.confidenceScore === null ? "N/A" : `${Math.round(need.confidenceScore * 100)}%`}
             </span>
@@ -95,7 +95,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
         <div className="rounded-lg p-3" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
           <div className="flex items-center gap-1.5 mb-1.5">
             <Sparkles size={11} style={{ color: "#1E3A8A" }} />
-            <span style={{ fontSize: "11px", fontWeight: 600, color: "#1E3A8A", textTransform: "uppercase", letterSpacing: "0.06em" }}>AI Explanation</span>
+            <span style={{ fontSize: "11px", fontWeight: 600, color: "#1E3A8A", textTransform: "uppercase", letterSpacing: "0.06em" }}>{tr.userNeeds.aiExplanation}</span>
           </div>
           <p style={{ fontSize: "12px", color: "#1E3A8A", lineHeight: 1.55 }}>
             {supportingFb.length} feedback records describe{supportingFb.length === 1 ? "s" : ""} a related user problem or goal that has been grouped under this User Need.
@@ -106,11 +106,11 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
         <div>
           <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>{tr.userNeeds.evidence} ({detail?.evidence_count ?? need.evidenceCount})</p>
           <div className="space-y-1.5">
-            {detailLoading && <div className="flex items-center gap-2 py-2"><Loader size={12} className="animate-spin" /><span style={{ fontSize: "12px", color: "#64748B" }}>Loading evidence...</span></div>}
+            {detailLoading && <div className="flex items-center gap-2 py-2"><Loader size={12} className="animate-spin" /><span style={{ fontSize: "12px", color: "#64748B" }}>{tr.userNeeds.evidenceLoading}</span></div>}
             {detailError && (
               <div className="rounded-md border p-2.5" style={{ borderColor: "#FCA5A5", background: "#FEF2F2" }}>
                 <p style={{ fontSize: "11.5px", color: "#B91C1C" }}>{detailError}</p>
-                <button onClick={() => void onRetryDetail()} style={{ fontSize: "11.5px", color: "#1E3A8A", marginTop: "4px" }}>Retry</button>
+                <button onClick={() => void onRetryDetail()} style={{ fontSize: "11.5px", color: "#1E3A8A", marginTop: "4px" }}>{tr.common.retry}</button>
               </div>
             )}
             {supportingFb.map((fb) => (
@@ -137,7 +137,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
         {/* Covered by Requirements */}
         <div>
           <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>
-            Covered by Requirements
+            {tr.userNeeds.coveredByRequirements}
           </p>
           {coveredBy.length > 0 ? (
             <div className="space-y-1.5">
@@ -151,10 +151,10 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
-              <span style={{ fontSize: "12px", color: "#92400E" }}>No requirements generated yet.</span>
+              <span style={{ fontSize: "12px", color: "#92400E" }}>{tr.userNeeds.noRequirementsYet}</span>
               {need.status === "Confirmed" && (
                 <span className="ml-auto px-2 py-0.5 rounded-full" style={{ background: "#FEF3C7", color: "#D97706", fontSize: "10px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                  Ready for generation
+                  {tr.userNeeds.readyForGeneration}
                 </span>
               )}
             </div>
@@ -166,7 +166,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
       <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
         {editing ? (
           <div className="flex gap-2">
-            <button disabled={actionBusy || !editTitle.trim() || !editDesc.trim()} onClick={async () => { if (await onSave(editTitle.trim(), editDesc.trim())) setEditing(false); }} className="flex-1 py-2 rounded-md text-white text-center hover:opacity-90 disabled:opacity-60 transition-all" style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>{actionBusy ? "Saving..." : tr.userNeeds.save}</button>
+            <button disabled={actionBusy || !editTitle.trim() || !editDesc.trim()} onClick={async () => { if (await onSave(editTitle.trim(), editDesc.trim())) setEditing(false); }} className="flex-1 py-2 rounded-md text-white text-center hover:opacity-90 disabled:opacity-60 transition-all" style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>{actionBusy ? tr.common.saving : tr.userNeeds.save}</button>
             <button onClick={() => { setEditing(false); setEditTitle(need.title); setEditDesc(need.description); }} className="px-3 py-2 rounded-md border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)", fontSize: "12.5px" }}>{tr.userNeeds.cancel}</button>
           </div>
         ) : (
@@ -275,7 +275,7 @@ export function UserNeeds({
     try {
       await onConfirmNeed(needId);
       setDetail((current) => current?.id === needId ? { ...current, status: "CONFIRMED" } : current);
-      toast.success("User Need confirmed");
+      toast.success(tr.userNeeds.confirmedSuccess);
       return true;
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to confirm User Need."));
@@ -292,7 +292,7 @@ export function UserNeeds({
       await onRejectNeed(needId);
       setDetail((current) => current?.id === needId ? { ...current, status: "REJECTED" } : current);
       setSelectedId(null);
-      toast.success("User Need rejected");
+      toast.success(tr.userNeeds.rejectedSuccess);
       return true;
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to reject User Need."));
@@ -308,7 +308,7 @@ export function UserNeeds({
     try {
       await onSaveNeed(needId, { title, description });
       setDetail((current) => current?.id === needId ? { ...current, title, description } : current);
-      toast.success("User Need saved");
+      toast.success(tr.userNeeds.savedSuccess);
       return true;
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to save User Need."));
@@ -350,10 +350,10 @@ export function UserNeeds({
           {/* Summary */}
           <div className="flex items-center gap-2 mb-5">
             {[
-              { label: "Total", value: needs.length, color: "#64748B", bg: "#F1F5F9" },
-              { label: "Confirmed", value: confirmed, color: "#059669", bg: "#ECFDF5" },
-              { label: "Candidate", value: candidate, color: "#1E3A8A", bg: "#EFF6FF" },
-              { label: "Rejected", value: needs.filter((n) => n.status === "Rejected").length, color: "#DC2626", bg: "#FEF2F2" },
+              { label: tr.userNeeds.statTotal, value: needs.length, color: "#64748B", bg: "#F1F5F9" },
+              { label: tr.userNeeds.statConfirmed, value: confirmed, color: "#059669", bg: "#ECFDF5" },
+              { label: tr.userNeeds.statCandidate, value: candidate, color: "#1E3A8A", bg: "#EFF6FF" },
+              { label: tr.userNeeds.statRejected, value: needs.filter((n) => n.status === "Rejected").length, color: "#DC2626", bg: "#FEF2F2" },
             ].map((s) => (
               <div key={s.label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full" style={{ background: s.bg }}>
                 <span style={{ fontSize: "13px", fontWeight: 600, color: s.color }}>{s.value}</span>
@@ -378,7 +378,7 @@ export function UserNeeds({
           {loadError && (
             <div className="mb-3 flex items-center justify-between rounded-lg border px-4 py-3" style={{ background: "#FEF2F2", borderColor: "#FCA5A5" }}>
               <span style={{ fontSize: "12.5px", color: "#B91C1C" }}>{loadError}</span>
-              <button onClick={() => void onRetry()} style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>Retry</button>
+              <button onClick={() => void onRetry()} style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>{tr.common.retry}</button>
             </div>
           )}
           {loading && needs.length === 0 ? (
@@ -388,7 +388,7 @@ export function UserNeeds({
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-lg border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
               <p style={{ fontSize: "14px", fontWeight: 500, color: "#64748B" }}>{tr.userNeeds.noNeeds}</p>
-              <button onClick={() => { setSearch(""); setStatusFilter(tr.userNeeds.allStatuses); setConfFilter(tr.userNeeds.allConfidence); }} style={{ fontSize: "12.5px", color: "#1E3A8A", marginTop: "6px" }}>Clear filters</button>
+              <button onClick={() => { setSearch(""); setStatusFilter(tr.userNeeds.allStatuses); setConfFilter(tr.userNeeds.allConfidence); }} style={{ fontSize: "12.5px", color: "#1E3A8A", marginTop: "6px" }}>{tr.common.clearFilters}</button>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">

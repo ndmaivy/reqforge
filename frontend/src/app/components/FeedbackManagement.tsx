@@ -7,6 +7,7 @@ import { SimpleSelect } from "./SimpleSelect";
 import { getErrorMessage } from "../../services/api";
 import type { FeedbackCreateRequest } from "../../types/feedback";
 import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../../types/analysis";
+import { useLanguage } from "../i18n/LanguageContext";
 
 const FEEDBACK_SOURCES: FeedbackSource[] = [
   "Interview", "Survey", "Usability Test", "App Review",
@@ -45,6 +46,7 @@ interface FeedbackDetailProps {
 }
 
 function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: FeedbackDetailProps) {
+  const { tr } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(item.text);
   const [editCat, setEditCat] = useState<FeedbackCategory>(item.category);
@@ -70,7 +72,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {/* Content */}
         <div>
-          <p style={{ fontSize: "10.5px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>Feedback Content</p>
+          <p style={{ fontSize: "10.5px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "6px" }}>{tr.feedback.contentLabel}</p>
           {editing ? (
             <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={4}
               className="w-full rounded-md border px-3 py-2 outline-none resize-none"
@@ -85,11 +87,11 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
         {/* Meta */}
         <div className="space-y-2.5">
           {[
-            { label: "Source", value: `${sourceIcon[item.source] ?? ""} ${item.source}` },
-            ...(item.sourceReference ? [{ label: "Reference", value: item.sourceReference }] : []),
-            ...(item.userSegment ? [{ label: "Segment", value: item.userSegment }] : []),
-            ...(item.context ? [{ label: "Context", value: item.context }] : []),
-            { label: "Date", value: item.date },
+            { label: tr.common.source, value: `${sourceIcon[item.source] ?? ""} ${item.source}` },
+            ...(item.sourceReference ? [{ label: tr.common.reference, value: item.sourceReference }] : []),
+            ...(item.userSegment ? [{ label: tr.common.segment, value: item.userSegment }] : []),
+            ...(item.context ? [{ label: tr.common.context, value: item.context }] : []),
+            { label: tr.common.date, value: item.date },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-start justify-between gap-2">
               <span style={{ fontSize: "11.5px", color: "#94A3B8", flexShrink: 0 }}>{label}</span>
@@ -98,7 +100,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
           ))}
 
           <div className="flex items-center justify-between">
-            <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>Category</span>
+            <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{tr.common.category}</span>
             {editing ? (
               <select value={editCat} onChange={(e) => setEditCat(e.target.value as FeedbackCategory)}
                 className="rounded border px-2 py-0.5 outline-none"
@@ -111,15 +113,15 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
           </div>
 
           <div className="flex items-center justify-between">
-            <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>Signal / Noise</span>
+            <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{tr.feedback.signalNoise}</span>
             <span style={{ fontSize: "12px", fontWeight: 500, color: item.isNoise ? "#DC2626" : "#059669" }}>
-              {item.isNoise ? "Likely noise" : "Useful signal"}
+              {item.isNoise ? tr.feedback.likelyNoise : tr.feedback.usefulSignal}
             </span>
           </div>
 
           {item.userNeedId && (
             <div className="flex items-center justify-between">
-              <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>Linked Need</span>
+              <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{tr.feedback.linkedNeed}</span>
               <span className="flex items-center gap-1" style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>
                 {item.userNeedId} <ExternalLink size={10} />
               </span>
@@ -132,7 +134,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
           <div className="rounded-lg p-3" style={{ background: "#F0F9FF", border: "1px solid #BAE6FD" }}>
             <div className="flex items-center gap-1.5 mb-2">
               <Sparkles size={11} style={{ color: "#1E3A8A" }} />
-              <p style={{ fontSize: "10.5px", fontWeight: 600, color: "#1E3A8A", textTransform: "uppercase", letterSpacing: "0.06em" }}>AI Analyzed</p>
+              <p style={{ fontSize: "10.5px", fontWeight: 600, color: "#1E3A8A", textTransform: "uppercase", letterSpacing: "0.06em" }}>{tr.feedback.aiAnalyzed}</p>
             </div>
             <p style={{ fontSize: "11.5px", color: "#1E3A8A", lineHeight: 1.5 }}>
               {item.isNoise
@@ -148,7 +150,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
           </div>
         ) : (
           <div className="rounded-lg p-3" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
-            <p style={{ fontSize: "11.5px", color: "#92400E", marginBottom: "8px" }}>This feedback has not been AI-analyzed yet.</p>
+            <p style={{ fontSize: "11.5px", color: "#92400E", marginBottom: "8px" }}>{tr.feedback.notAnalyzed}</p>
             <button onClick={async () => {
               if (analyzing) return;
               setAnalyzing(true);
@@ -156,7 +158,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
             }} disabled={analyzing} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white hover:opacity-90 disabled:opacity-60 transition-all"
               style={{ background: "#1E3A8A", fontSize: "12px", fontWeight: 500 }}>
               {analyzing ? <Loader size={11} className="animate-spin" /> : <Sparkles size={11} />}
-              {analyzing ? "Analyzing..." : "Analyze this feedback"}
+              {analyzing ? tr.feedback.analyzing : tr.feedback.analyzeThis}
             </button>
           </div>
         )}
@@ -172,9 +174,9 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
               try {
                 await onSave(editText.trim(), editCat);
                 setEditing(false);
-                toast.success("Changes saved");
+                toast.success(tr.feedback.changesSaved);
               } catch (error) {
-                setSaveError(getErrorMessage(error, "Unable to save feedback."));
+                setSaveError(getErrorMessage(error, tr.feedback.saveError));
               } finally {
                 setSaving(false);
               }
@@ -182,18 +184,18 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
               disabled={saving || !editText.trim()}
               className="flex-1 py-2 rounded-md text-white text-center hover:opacity-90"
               style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>
-              {saving ? "Saving..." : "Save"}
+              {saving ? tr.common.saving : tr.common.save}
             </button>
             <button onClick={() => { setEditing(false); setEditText(item.text); setEditCat(item.category); }}
               className="px-3 py-2 rounded-md border hover:bg-gray-50"
-              style={{ borderColor: "var(--border)", fontSize: "12.5px" }}>Cancel</button>
+              style={{ borderColor: "var(--border)", fontSize: "12.5px" }}>{tr.common.cancel}</button>
           </div>
         ) : (
           <div className="flex gap-2">
             <button onClick={() => setEditing(true)} className="flex-1 py-2 rounded-md border hover:bg-gray-50 text-center"
-              style={{ borderColor: "var(--border)", fontSize: "12.5px", color: "#374151" }}>Edit</button>
+              style={{ borderColor: "var(--border)", fontSize: "12.5px", color: "#374151" }}>{tr.common.edit}</button>
             <button onClick={onArchive} className="flex-1 py-2 rounded-md border hover:bg-red-50 text-center"
-              style={{ borderColor: "#FCA5A5", fontSize: "12.5px", color: "#DC2626" }}>Archive</button>
+              style={{ borderColor: "#FCA5A5", fontSize: "12.5px", color: "#DC2626" }}>{tr.common.archive}</button>
           </div>
         )}
         {saveError && <p style={{ fontSize: "11.5px", color: "#DC2626" }}>{saveError}</p>}
@@ -211,6 +213,7 @@ interface PublicFormProps {
 }
 
 function PublicForm({ project, onClose, onSubmit }: PublicFormProps) {
+  const { tr } = useLanguage();
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
   const [userType, setUserType] = useState("Applicant");
@@ -229,8 +232,8 @@ function PublicForm({ project, onClose, onSubmit }: PublicFormProps) {
       {submitted ? (
         <div className="flex flex-col items-center py-12 px-6">
           <CheckCircle size={40} style={{ color: "#059669", marginBottom: "12px" }} />
-          <p style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "6px" }}>Thank you!</p>
-          <p style={{ fontSize: "13px", color: "#64748B" }}>Your feedback has been submitted.</p>
+          <p style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "6px" }}>{tr.feedback.thankYou}</p>
+          <p style={{ fontSize: "13px", color: "#64748B" }}>{tr.feedback.submitted}</p>
         </div>
       ) : (
         <>
@@ -241,10 +244,10 @@ function PublicForm({ project, onClose, onSubmit }: PublicFormProps) {
               </div>
               <div>
                 <p style={{ fontSize: "14px", fontWeight: 700, color: "#0F172A" }}>{project.name}</p>
-                <p style={{ fontSize: "11.5px", color: "#64748B" }}>User Feedback</p>
+                <p style={{ fontSize: "11.5px", color: "#64748B" }}>{tr.feedback.publicFormTitle}</p>
               </div>
             </div>
-            <p style={{ fontSize: "12px", color: "#64748B" }}>Help us improve your experience. Your feedback goes directly to our product team.</p>
+            <p style={{ fontSize: "12px", color: "#64748B" }}>{tr.feedback.publicFormIntro}</p>
           </div>
           <div className="px-6 py-5 space-y-4">
             <div>
@@ -291,10 +294,10 @@ function PublicForm({ project, onClose, onSubmit }: PublicFormProps) {
           </div>
           <div className="flex gap-2 px-6 py-4 border-t" style={{ borderColor: "var(--border)" }}>
             <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50"
-              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Cancel</button>
+              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>{tr.common.cancel}</button>
             <button onClick={handleSubmit} disabled={!text.trim()}
               className="flex-1 py-2 rounded-md text-white hover:opacity-90 disabled:opacity-50"
-              style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>Submit Feedback</button>
+              style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>{tr.feedback.submit}</button>
           </div>
         </>
       )}
@@ -538,6 +541,7 @@ export function FeedbackManagement({
   showAddModal = false, showImportModal = false, showPublicLinkModal = false,
   onCloseAddModal, onCloseImportModal, onClosePublicLinkModal,
 }: FeedbackManagementProps) {
+  const { tr } = useLanguage();
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All Categories");
   const [sourceFilter, setSourceFilter] = useState("All Sources");
@@ -618,9 +622,9 @@ export function FeedbackManagement({
         feedback_date: parseFeedbackDate(recordForm.collectedDate),
       });
       closeRecord();
-      toast.success("Feedback recorded successfully");
+      toast.success(tr.feedback.recordedSuccess);
     } catch (error) {
-      setRecordSubmitError(getErrorMessage(error, "Unable to record feedback."));
+      setRecordSubmitError(getErrorMessage(error, tr.feedback.recordError));
     } finally {
       setRecording(false);
     }
@@ -633,12 +637,12 @@ export function FeedbackManagement({
     }
     if (detailLoadingId) return;
     setDetailLoadingId(item.id);
-    const toastId = toast.loading("Loading feedback details...");
+    const toastId = toast.loading(tr.feedback.detailLoading);
     try {
       setSelected(await onLoadFeedbackDetail(item.id));
       toast.dismiss(toastId);
     } catch (error) {
-      toast.error(getErrorMessage(error, "Unable to load feedback details."), { id: toastId });
+      toast.error(getErrorMessage(error, tr.feedback.detailError), { id: toastId });
     } finally {
       setDetailLoadingId(null);
     }
@@ -652,7 +656,7 @@ export function FeedbackManagement({
       setSelected(refreshed);
       toast.success(`${item.id} analyzed`, { id: toastId });
     } catch (error) {
-      toast.error(getErrorMessage(error, "Feedback analysis failed."), { id: toastId });
+      toast.error(getErrorMessage(error, tr.feedback.analysisError), { id: toastId });
       throw error;
     }
   };
@@ -729,8 +733,8 @@ export function FeedbackManagement({
           {/* Header */}
           <div className="flex items-start justify-between mb-5">
             <div>
-              <h1 style={{ fontSize: "19px", fontWeight: 700, color: "var(--foreground)", letterSpacing: "-0.02em" }}>Feedback Inbox</h1>
-              <p style={{ fontSize: "13px", color: "var(--muted-foreground)", marginTop: "2px" }}>User feedback collected for this project.</p>
+              <h1 style={{ fontSize: "19px", fontWeight: 700, color: "var(--foreground)", letterSpacing: "-0.02em" }}>{tr.feedback.inboxTitle}</h1>
+              <p style={{ fontSize: "13px", color: "var(--muted-foreground)", marginTop: "2px" }}>{tr.feedback.inboxSubtitle}</p>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => setShowPublicLink(true)}
@@ -760,10 +764,10 @@ export function FeedbackManagement({
           {/* Summary Stats */}
           <div className="grid grid-cols-4 gap-3 mb-5">
             {[
-              { label: "Total", value: feedback.length, color: "#1E3A8A", bg: "#EFF6FF", filter: "All" },
-              { label: "New", value: newCount, color: "#D97706", bg: "#FFFBEB", filter: "New" },
-              { label: "Analyzed", value: analyzedCount, color: "#059669", bg: "#ECFDF5", filter: "Analyzed" },
-              { label: "Archived", value: archivedCount, color: "#64748B", bg: "#F1F5F9", filter: "Archived" },
+              { label: tr.feedback.total, value: feedback.length, color: "#1E3A8A", bg: "#EFF6FF", filter: "All" },
+              { label: tr.status.New, value: newCount, color: "#D97706", bg: "#FFFBEB", filter: "New" },
+              { label: tr.status.Analyzed, value: analyzedCount, color: "#059669", bg: "#ECFDF5", filter: "Analyzed" },
+              { label: tr.status.Archived, value: archivedCount, color: "#64748B", bg: "#F1F5F9", filter: "Archived" },
             ].map((s) => (
               <button key={s.label} onClick={() => setStatusFilter(s.filter)}
                 className="rounded-xl border p-3.5 text-left transition-all hover:shadow-sm"
@@ -779,7 +783,7 @@ export function FeedbackManagement({
             <div className="flex items-center gap-2 px-3 py-2 rounded-md border flex-1"
               style={{ borderColor: "var(--border)", background: "#fff" }}>
               <Search size={13} style={{ color: "#94A3B8" }} />
-              <input type="text" placeholder="Search feedback..." value={search} onChange={(e) => setSearch(e.target.value)}
+              <input type="text" placeholder={tr.feedback.search} value={search} onChange={(e) => setSearch(e.target.value)}
                 className="bg-transparent outline-none flex-1" style={{ fontSize: "13px" }} />
             </div>
             <SimpleSelect value={sourceFilter}
@@ -797,22 +801,22 @@ export function FeedbackManagement({
             <div className="flex flex-col items-center justify-center py-16 rounded-xl border"
               style={{ background: "var(--card)", borderColor: "var(--border)" }}>
               <Loader size={22} className="animate-spin" style={{ color: "#1E3A8A", marginBottom: "8px" }} />
-              <p style={{ fontSize: "13px", color: "#64748B" }}>Loading feedback...</p>
+              <p style={{ fontSize: "13px", color: "#64748B" }}>{tr.feedback.loading}</p>
             </div>
           ) : loadError ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-xl border"
               style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-              <p style={{ fontSize: "14px", fontWeight: 500, color: "#64748B" }}>Unable to load feedback</p>
+              <p style={{ fontSize: "14px", fontWeight: 500, color: "#64748B" }}>{tr.feedback.loadError}</p>
               <p style={{ fontSize: "12.5px", color: "#94A3B8", marginTop: "4px", marginBottom: "10px" }}>{loadError}</p>
-              <button onClick={() => void onRetry()} style={{ fontSize: "12.5px", color: "#1E3A8A" }}>Retry</button>
+              <button onClick={() => void onRetry()} style={{ fontSize: "12.5px", color: "#1E3A8A" }}>{tr.feedback.retry}</button>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-xl border"
               style={{ background: "var(--card)", borderColor: "var(--border)" }}>
               <Search size={20} style={{ color: "#CBD5E1", marginBottom: "8px" }} />
-              <p style={{ fontSize: "14px", fontWeight: 500, color: "#64748B" }}>No feedback found</p>
+              <p style={{ fontSize: "14px", fontWeight: 500, color: "#64748B" }}>{tr.feedback.noFeedback}</p>
               <button onClick={() => { setSearch(""); setCategoryFilter("All Categories"); setSourceFilter("All Sources"); setStatusFilter("All"); }}
-                style={{ fontSize: "12.5px", color: "#1E3A8A", marginTop: "6px" }}>Clear filters</button>
+                style={{ fontSize: "12.5px", color: "#1E3A8A", marginTop: "6px" }}>{tr.feedback.clearFilters}</button>
             </div>
           ) : (
             <div className="rounded-xl border overflow-hidden" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
@@ -841,7 +845,7 @@ export function FeedbackManagement({
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                             <span className="px-1.5 py-0 rounded whitespace-nowrap" style={{ background: cc.bg, color: cc.text, fontSize: "10px", fontWeight: 600 }}>{fb.category}</span>
-                            {fb.isNoise && <span className="px-1.5 py-0 rounded" style={{ background: "#FEF2F2", color: "#DC2626", fontSize: "10px", fontWeight: 600 }}>Noise</span>}
+                            {fb.isNoise && <span className="px-1.5 py-0 rounded" style={{ background: "#FEF2F2", color: "#DC2626", fontSize: "10px", fontWeight: 600 }}>{tr.feedback.noise}</span>}
                           </div>
                           <p style={{ fontSize: "12.5px", color: "var(--foreground)", lineHeight: 1.4 }} className="line-clamp-2">"{fb.text}"</p>
                           {fb.context && <p style={{ fontSize: "11px", color: "#94A3B8", marginTop: "2px" }}>{fb.context}</p>}

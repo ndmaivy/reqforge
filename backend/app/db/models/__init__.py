@@ -7,6 +7,7 @@ from app.db.models.need_requirement_link import NeedRequirementLink
 from app.db.models.project import Project
 from app.db.models.requirement import Requirement
 from app.db.models.requirement_issue import RequirementIssue
+from app.db.models.user import User
 from app.db.models.user_need import UserNeed
 
 __all__ = [
@@ -17,5 +18,6 @@ __all__ = [
     "Project",
     "Requirement",
     "RequirementIssue",
+    "User",
     "UserNeed",
 ]

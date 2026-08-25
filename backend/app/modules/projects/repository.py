@@ -16,13 +16,24 @@ class ProjectRepository:
         self.session.add(project)
         return project
 
-    def get(self, project_id: UUID) -> Project | None:
-        return self.session.get(Project, project_id)
+    def get(self, project_id: UUID, owner_id: UUID | None = None) -> Project | None:
+        statement = select(Project).where(Project.id == project_id)
+        if owner_id is not None:
+            statement = statement.where(Project.owner_id == owner_id)
+        return self.session.scalar(statement)
 
-    def list(self, page: int, page_size: int) -> tuple[list[Project], int]:
+    def list(
+        self, page: int, page_size: int, owner_id: UUID | None = None
+    ) -> tuple[list[Project], int]:
+        filters = []
+        if owner_id is not None:
+            filters.append(Project.owner_id == owner_id)
         statement = (
-            select(Project).order_by(Project.created_at.desc()).offset((page - 1) * page_size)
+            select(Project)
+            .where(*filters)
+            .order_by(Project.created_at.desc())
+            .offset((page - 1) * page_size)
         )
         projects = list(self.session.scalars(statement.limit(page_size)))
-        total = self.session.scalar(select(func.count()).select_from(Project)) or 0
+        total = self.session.scalar(select(func.count()).select_from(Project).where(*filters)) or 0
         return projects, total

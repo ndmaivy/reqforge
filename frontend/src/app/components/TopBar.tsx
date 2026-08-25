@@ -5,6 +5,7 @@ import {
 import type { Project } from "../data/mockData";
 import { useLanguage } from "../i18n/LanguageContext";
 import type { Lang } from "../i18n/translations";
+import type { AuthUser } from "../../types/auth";
 
 type Mode = "light" | "dark";
 type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis";
@@ -18,9 +19,20 @@ interface TopBarProps {
   project?: Project;
   activeScreen?: Screen;
   onBackToProjects?: () => void;
+  user: AuthUser;
+  onLogout: () => void;
 }
 
-export function TopBar({ project, activeScreen, onBackToProjects }: TopBarProps) {
+function userInitials(fullName: string): string {
+  return fullName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "U";
+}
+
+export function TopBar({ project, activeScreen, onBackToProjects, user, onLogout }: TopBarProps) {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -107,7 +119,7 @@ export function TopBar({ project, activeScreen, onBackToProjects }: TopBarProps)
             className="w-8 h-8 rounded-full flex items-center justify-center text-white ring-2 ring-offset-1 transition-all hover:ring-blue-300"
             style={{ background: "#1E3A8A", fontSize: "11px", fontWeight: 700, ringColor: "transparent" }}
           >
-            TA
+            {userInitials(user.full_name)}
           </button>
 
           {userMenuOpen && (
@@ -122,11 +134,11 @@ export function TopBar({ project, activeScreen, onBackToProjects }: TopBarProps)
                     className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0"
                     style={{ background: "var(--primary)", fontSize: "12px", fontWeight: 700 }}
                   >
-                    TA
+                    {userInitials(user.full_name)}
                   </div>
                   <div>
-                    <p style={{ fontSize: "13px", fontWeight: 600, color: "#0F172A" }}>Anh Tran</p>
-                    <p style={{ fontSize: "11.5px", color: "#64748B" }}>anh@reqforge.io</p>
+                    <p style={{ fontSize: "13px", fontWeight: 600, color: "#0F172A" }}>{user.full_name}</p>
+                    <p style={{ fontSize: "11.5px", color: "#64748B" }}>{user.email}</p>
                   </div>
                 </div>
               </div>
@@ -210,7 +222,7 @@ export function TopBar({ project, activeScreen, onBackToProjects }: TopBarProps)
 
                 {/* Sign out */}
                 <button
-                  onClick={() => setUserMenuOpen(false)}
+                  onClick={() => { setUserMenuOpen(false); onLogout(); }}
                   className="w-full flex items-center gap-2.5 px-3.5 py-2 transition-colors hover:bg-red-50"
                 >
                   <LogOut size={13} style={{ color: "#DC2626" }} />

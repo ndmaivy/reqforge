@@ -56,6 +56,11 @@ class DuplicateResource(DomainError):
     status_code = 409
 
 
+class AuthenticationError(DomainError):
+    code = "AUTHENTICATION_FAILED"
+    status_code = 401
+
+
 class EmptyAnalysisInput(DomainError):
     code = "EMPTY_ANALYSIS_INPUT"
     status_code = 422

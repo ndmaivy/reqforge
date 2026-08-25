@@ -9,6 +9,7 @@ import { FeedbackManagement } from "./components/FeedbackManagement";
 import { UserNeeds } from "./components/UserNeeds";
 import { Requirements } from "./components/Requirements";
 import { Analysis } from "./components/Analysis";
+import { AuthPage } from "./components/AuthPage";
 import {
   INITIAL_ISSUES, INITIAL_ACTIVITIES,
 } from "./data/mockData";
@@ -17,7 +18,15 @@ import type {
   Requirement, RequirementIssue, RequirementStatus, RequirementType,
 } from "./data/mockData";
 import type { CreateProjectFormData } from "./components/ProjectsPage";
-import { getErrorMessage } from "../services/api";
+import {
+  clearAccessToken,
+  getAccessToken,
+  getErrorMessage,
+  setAccessToken,
+  UNAUTHORIZED_EVENT,
+} from "../services/api";
+import { getCurrentUser } from "../services/auth";
+import type { AuthResponse, AuthUser } from "../types/auth";
 import {
   createProject as createProjectRequest,
   getProject,
@@ -218,7 +227,7 @@ function toUiRequirement(
   };
 }
 
-export default function App() {
+function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   // Top-level view
   const [view, setView] = useState<"projects" | "workspace">("projects");
   const [activeProject, setActiveProject] = useState<Project | null>(null);
@@ -523,10 +532,10 @@ export default function App() {
   if (view === "projects" || !activeProject) {
     return (
       <LanguageProvider>
-        <div className="flex h-screen overflow-hidden" style={{ fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)" }}>
-          <GlobalSidebar onGoToProjects={() => {}} />
+        <div className="flex h-screen overflow-hidden" style={{ fontFamily: "var(--font-sans)" }}>
+          <GlobalSidebar onGoToProjects={() => {}} user={user} />
           <div className="flex flex-col flex-1 overflow-hidden">
-            <TopBar />
+            <TopBar user={user} onLogout={onLogout} />
             <ProjectsPage
               projects={projects}
               loading={projectsLoading}
@@ -544,7 +553,7 @@ export default function App() {
 
   return (
     <LanguageProvider>
-    <div className="flex h-screen overflow-hidden" style={{ fontFamily: "var(--font-sans, 'Inter', system-ui, sans-serif)" }}>
+    <div className="flex h-screen overflow-hidden" style={{ fontFamily: "var(--font-sans)" }}>
       <Sidebar
         project={proj}
         allProjects={projects}
@@ -555,6 +564,7 @@ export default function App() {
         feedbackCount={projectFeedback.filter((f) => f.status === "New").length}
         needsCount={projectNeeds.filter((n) => n.status === "Candidate").length}
         openIssues={projectIssues.filter((i) => i.status === "Open").length}
+        user={user}
       />
 
       <div className="flex flex-col flex-1 overflow-hidden">
@@ -562,6 +572,8 @@ export default function App() {
           project={proj}
           activeScreen={activeScreen}
           onBackToProjects={backToProjects}
+          user={user}
+          onLogout={onLogout}
         />
 
         <div className="flex flex-1 overflow-hidden" style={{ background: "var(--background)" }}>
@@ -655,4 +667,57 @@ export default function App() {
     </div>
     </LanguageProvider>
   );
+}
+
+export default function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+
+  const logout = useCallback(() => {
+    clearAccessToken();
+    setUser(null);
+    setSessionLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const restoreSession = async () => {
+      if (!getAccessToken()) {
+        setSessionLoading(false);
+        return;
+      }
+      try {
+        setUser(await getCurrentUser());
+      } catch {
+        clearAccessToken();
+        setUser(null);
+      } finally {
+        setSessionLoading(false);
+      }
+    };
+
+    void restoreSession();
+    window.addEventListener(UNAUTHORIZED_EVENT, logout);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, logout);
+  }, [logout]);
+
+  const handleAuthenticated = (response: AuthResponse) => {
+    setAccessToken(response.access_token);
+    setUser(response.user);
+    setSessionLoading(false);
+  };
+
+  if (sessionLoading) {
+    return (
+      <main
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--background)", fontFamily: "var(--font-sans)" }}
+      >
+        <div className="w-6 h-6 rounded-full border-2 border-blue-800 border-t-transparent animate-spin" />
+      </main>
+    );
+  }
+
+  if (!user) return <AuthPage onAuthenticated={handleAuthenticated} />;
+
+  return <ReqForgeApp user={user} onLogout={logout} />;
 }

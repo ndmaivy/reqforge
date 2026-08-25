@@ -6,8 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_session
+from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
+from app.db.models import User
 from app.db.models.enums import FeedbackStatus
 from app.modules.feedback.schemas import (
     FeedbackCreate,
@@ -28,9 +29,12 @@ router = APIRouter(prefix="/feedback", tags=["Feedback"])
     summary="Record feedback",
 )
 def create_feedback(
-    project_id: UUID, payload: FeedbackCreate, session: Session = Depends(get_session)
+    project_id: UUID,
+    payload: FeedbackCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).create(project_id, payload)
+    feedback = FeedbackService(session).create(project_id, payload, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
 
 
@@ -45,6 +49,7 @@ def import_feedback(
     file: UploadFile,
     request: Request,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackImportResponse]:
     max_bytes = request.app.state.settings.max_import_bytes
     content = file.file.read(max_bytes + 1)
@@ -52,7 +57,9 @@ def import_feedback(
         from app.core.exceptions import ImportFileError
 
         raise ImportFileError(f"Import file exceeds the {max_bytes}-byte limit")
-    items = FeedbackService(session).import_file(project_id, file.filename, content)
+    items = FeedbackService(session).import_file(
+        project_id, file.filename, content, current_user.id
+    )
     return DataResponse(
         data=FeedbackImportResponse(
             imported_count=len(items), feedback_ids=[item.id for item in items]
@@ -74,9 +81,19 @@ def list_feedback(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> ListResponse[FeedbackResponse]:
     items, total = FeedbackService(session).list(
-        project_id, page, page_size, status, source, category, search, date_from, date_to
+        project_id,
+        page,
+        page_size,
+        status,
+        source,
+        category,
+        search,
+        date_from,
+        date_to,
+        current_user.id,
     )
     return ListResponse(
         data=[FeedbackResponse.model_validate(item) for item in items],
@@ -90,9 +107,11 @@ def list_feedback(
     summary="Get feedback detail",
 )
 def get_feedback(
-    feedback_id: UUID, session: Session = Depends(get_session)
+    feedback_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).get(feedback_id)
+    feedback = FeedbackService(session).get(feedback_id, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
 
 
@@ -100,9 +119,12 @@ def get_feedback(
     "/{feedback_id}", response_model=DataResponse[FeedbackResponse], summary="Edit feedback"
 )
 def update_feedback(
-    feedback_id: UUID, payload: FeedbackUpdate, session: Session = Depends(get_session)
+    feedback_id: UUID,
+    payload: FeedbackUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).update(feedback_id, payload)
+    feedback = FeedbackService(session).update(feedback_id, payload, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
 
 
@@ -112,7 +134,9 @@ def update_feedback(
     summary="Archive feedback",
 )
 def archive_feedback(
-    feedback_id: UUID, session: Session = Depends(get_session)
+    feedback_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).archive(feedback_id)
+    feedback = FeedbackService(session).archive(feedback_id, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))

@@ -9,6 +9,24 @@ if (!configuredApiBaseUrl) {
 }
 
 const API_BASE_URL = configuredApiBaseUrl.replace(/\/+$/, "");
+const ACCESS_TOKEN_STORAGE_KEY = "reqforge.access_token";
+
+export const UNAUTHORIZED_EVENT = "reqforge:unauthorized";
+
+export function getAccessToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY);
+}
+
+export function setAccessToken(accessToken: string): void {
+  window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, accessToken);
+}
+
+export function clearAccessToken(): void {
+  if (typeof window !== "undefined") {
+    window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY);
+  }
+}
 
 export interface DataResponse<T> {
   data: T;
@@ -61,6 +79,10 @@ async function readResponseBody(response: Response): Promise<unknown> {
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
+  const accessToken = getAccessToken();
+  if (accessToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${accessToken}`);
+  }
   if (init.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
@@ -79,6 +101,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 
   const body = await readResponseBody(response);
   if (!response.ok) {
+    if (response.status === 401) {
+      clearAccessToken();
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
     const apiError = typeof body === "object" && body !== null ? (body as ErrorResponse).error : undefined;
     throw new ApiError(
       apiError?.message || `Request failed with status ${response.status}`,

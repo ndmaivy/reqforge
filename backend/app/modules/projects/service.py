@@ -15,23 +15,23 @@ class ProjectService:
         self.session = session
         self.repository = ProjectRepository(session)
 
-    def create(self, payload: ProjectCreate) -> Project:
-        project = self.repository.create(Project(**payload.model_dump()))
+    def create(self, payload: ProjectCreate, owner_id: UUID) -> Project:
+        project = self.repository.create(Project(**payload.model_dump(), owner_id=owner_id))
         self.session.commit()
         self.session.refresh(project)
         return project
 
-    def get(self, project_id: UUID) -> Project:
-        project = self.repository.get(project_id)
+    def get(self, project_id: UUID, owner_id: UUID | None = None) -> Project:
+        project = self.repository.get(project_id, owner_id)
         if project is None:
             raise ProjectNotFound("Project not found")
         return project
 
-    def list(self, page: int, page_size: int) -> tuple[list[Project], int]:
-        return self.repository.list(page, page_size)
+    def list(self, page: int, page_size: int, owner_id: UUID) -> tuple[list[Project], int]:
+        return self.repository.list(page, page_size, owner_id)
 
-    def update(self, project_id: UUID, payload: ProjectUpdate) -> Project:
-        project = self.get(project_id)
+    def update(self, project_id: UUID, payload: ProjectUpdate, owner_id: UUID) -> Project:
+        project = self.get(project_id, owner_id)
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(project, field, value)
         self.session.commit()

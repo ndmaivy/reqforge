@@ -25,8 +25,10 @@ class FeedbackService:
         self.repository = FeedbackRepository(session)
         self.projects = ProjectService(session)
 
-    def create(self, project_id: UUID, payload: FeedbackCreate) -> Feedback:
-        self.projects.get(project_id)
+    def create(
+        self, project_id: UUID, payload: FeedbackCreate, owner_id: UUID | None = None
+    ) -> Feedback:
+        self.projects.get(project_id, owner_id)
         values = payload.model_dump()
         values["content"] = normalize_feedback_content(values["content"])
         feedback = self.repository.create(Feedback(project_id=project_id, **values))
@@ -34,10 +36,12 @@ class FeedbackService:
         self.session.refresh(feedback)
         return feedback
 
-    def get(self, feedback_id: UUID) -> Feedback:
+    def get(self, feedback_id: UUID, owner_id: UUID | None = None) -> Feedback:
         feedback = self.repository.get(feedback_id)
         if feedback is None:
             raise FeedbackNotFound("Feedback not found")
+        if owner_id is not None:
+            self.projects.get(feedback.project_id, owner_id)
         return feedback
 
     def list(
@@ -51,14 +55,17 @@ class FeedbackService:
         search: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        owner_id: UUID | None = None,
     ) -> tuple[list[Feedback], int]:
-        self.projects.get(project_id)
+        self.projects.get(project_id, owner_id)
         return self.repository.list(
             project_id, page, page_size, status, source, category, search, date_from, date_to
         )
 
-    def update(self, feedback_id: UUID, payload: FeedbackUpdate) -> Feedback:
-        feedback = self.get(feedback_id)
+    def update(
+        self, feedback_id: UUID, payload: FeedbackUpdate, owner_id: UUID | None = None
+    ) -> Feedback:
+        feedback = self.get(feedback_id, owner_id)
         if feedback.status is FeedbackStatus.ARCHIVED:
             raise InvalidStateTransition("Archived feedback cannot be edited")
         for field, value in payload.model_dump(exclude_unset=True).items():
@@ -70,9 +77,13 @@ class FeedbackService:
         return feedback
 
     def import_file(
-        self, project_id: UUID, filename: str | None, content: bytes
+        self,
+        project_id: UUID,
+        filename: str | None,
+        content: bytes,
+        owner_id: UUID | None = None,
     ) -> list[Feedback]:
-        self.projects.get(project_id)
+        self.projects.get(project_id, owner_id)
         suffix = Path(filename or "").suffix.lower()
         if suffix == ".csv":
             rows = self._read_csv(content)
@@ -136,8 +147,8 @@ class FeedbackService:
         except Exception as exc:
             raise ImportFileError("The XLSX file could not be read") from exc
 
-    def archive(self, feedback_id: UUID) -> Feedback:
-        feedback = self.get(feedback_id)
+    def archive(self, feedback_id: UUID, owner_id: UUID | None = None) -> Feedback:
+        feedback = self.get(feedback_id, owner_id)
         if feedback.status is FeedbackStatus.ARCHIVED:
             raise InvalidStateTransition("Feedback is already archived")
         feedback.status = FeedbackStatus.ARCHIVED

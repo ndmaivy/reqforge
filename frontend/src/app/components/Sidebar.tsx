@@ -7,6 +7,7 @@ import {
 import logoImg from "../../imports/image.png";
 import type { Project } from "../data/mockData";
 import { useLanguage } from "../i18n/LanguageContext";
+import type { AuthUser } from "../../types/auth";
 
 type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis";
 
@@ -18,9 +19,10 @@ const HOVER_BG = "#F8FAFC";
 // ---- Global sidebar (Projects page) ----
 interface GlobalSidebarProps {
   onGoToProjects: () => void;
+  user: AuthUser;
 }
 
-export function GlobalSidebar({ onGoToProjects }: GlobalSidebarProps) {
+export function GlobalSidebar({ onGoToProjects, user }: GlobalSidebarProps) {
   const { tr } = useLanguage();
   return (
     <aside
@@ -36,7 +38,7 @@ export function GlobalSidebar({ onGoToProjects }: GlobalSidebarProps) {
         <NavBtn icon={HelpCircle} label={tr.nav.helpDocs} onClick={() => {}} />
       </nav>
 
-      <UserFooter />
+      <UserFooter user={user} />
     </aside>
   );
 }
@@ -52,11 +54,12 @@ interface WorkspaceSidebarProps {
   feedbackCount: number;
   needsCount: number;
   openIssues: number;
+  user: AuthUser;
 }
 
 export function Sidebar({
   project, allProjects, onSwitchProject, activeScreen, onNavigate, onBackToProjects,
-  feedbackCount, needsCount, openIssues,
+  feedbackCount, needsCount, openIssues, user,
 }: WorkspaceSidebarProps) {
   const { tr } = useLanguage();
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -221,7 +224,7 @@ export function Sidebar({
         </div>
       </nav>
 
-      <UserFooter />
+      <UserFooter user={user} />
     </aside>
   );
 }
@@ -298,7 +301,14 @@ function NavBtn({ icon: Icon, label, active = false, badge, onClick }: NavBtnPro
   );
 }
 
-function UserFooter() {
+function UserFooter({ user }: { user: AuthUser }) {
+  const initials = user.full_name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "U";
+
   return (
     <div className="px-3 py-3 border-t" style={{ borderColor: "var(--sidebar-border)" }}>
       <button
@@ -308,11 +318,11 @@ function UserFooter() {
           className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white"
           style={{ background: "var(--primary)", fontSize: "10px", fontWeight: 700 }}
         >
-          TA
+          {initials}
         </div>
         <div className="flex-1 text-left">
-          <p style={{ fontSize: "12.5px", fontWeight: 600, color: "#0F172A" }}>Anh Tran</p>
-          <p style={{ fontSize: "11px", color: INACTIVE_TEXT }}>Product Analyst</p>
+          <p className="truncate" style={{ fontSize: "12.5px", fontWeight: 600, color: "#0F172A" }}>{user.full_name}</p>
+          <p className="truncate" style={{ fontSize: "11px", color: INACTIVE_TEXT }}>{user.email}</p>
         </div>
         <ChevronDown size={12} style={{ color: "#CBD5E1" }} />
       </button>
