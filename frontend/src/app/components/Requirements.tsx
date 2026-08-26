@@ -94,6 +94,7 @@ interface ReqDetailProps {
   onTransitionIssue: (issueId: string, action: "resolve" | "dismiss") => Promise<void>;
   onRetryIssues: () => Promise<void>;
   onValidate: (signal: AbortSignal) => Promise<AnalysisRunDto>;
+  readOnly: boolean;
 }
 
 // ─── AI Validation types ───────────────────────────────────────────────────────
@@ -117,6 +118,7 @@ function ReqDetail({
   onTransitionIssue,
   onRetryIssues,
   onValidate,
+  readOnly,
 }: ReqDetailProps) {
   const { tr } = useLanguage();
 
@@ -268,7 +270,7 @@ function ReqDetail({
               {req.id}
             </span>
           </div>
-          {!editing && (
+          {!editing && !readOnly && (
             <div className="flex items-center gap-2">
               {req.status === "Needs Review" && (
                 <button
@@ -400,7 +402,7 @@ function ReqDetail({
             </div>
 
             {/* Action buttons */}
-            <div
+            {!readOnly && <div
               className="flex items-center gap-2 pt-4 border-t flex-wrap"
               style={{ borderColor: "var(--border)" }}
             >
@@ -454,7 +456,7 @@ function ReqDetail({
                   </button>
                 </>
               )}
-            </div>
+            </div>}
           </div>
 
           {/* ─── RIGHT COLUMN — AI Review ──────────────────────────────────── */}
@@ -513,13 +515,13 @@ function ReqDetail({
                           >
                             {tr.requirements.validationOutdatedMsg}
                           </p>
-                          <button
+                          {!readOnly && <button
                             onClick={handleRunValidation}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-white hover:opacity-90 transition-all"
                             style={{ background: "#D97706", fontSize: "12px", fontWeight: 500 }}
                           >
                             <Sparkles size={11} /> {tr.requirements.rerunValidation}
-                          </button>
+                          </button>}
                         </div>
                       </div>
                     </div>
@@ -792,7 +794,7 @@ function ReqDetail({
                                           Confidence: {Math.round(Number(issue.confidence) * 100)}%
                                         </p>
                                       )}
-                                      {!isClosed && (
+                                      {!readOnly && !isClosed && (
                                         <div className="flex gap-2 pt-1">
                                           <button
                                             disabled={actionBusy}
@@ -1029,6 +1031,7 @@ interface RequirementsProps {
   }>;
   showGenerateModal?: boolean;
   onCloseGenerateModal?: () => void;
+  readOnly?: boolean;
 }
 
 export function Requirements({
@@ -1051,13 +1054,14 @@ export function Requirements({
   onValidateRequirement,
   showGenerateModal = false,
   onCloseGenerateModal,
+  readOnly = false,
 }: RequirementsProps) {
   const { tr } = useLanguage();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState(tr.requirements.allStatuses);
-  const [typeFilter, setTypeFilter] = useState(tr.requirements.allTypes);
+  const [statusFilter, setStatusFilter] = useState<string>(tr.requirements.allStatuses);
+  const [typeFilter, setTypeFilter] = useState<string>(tr.requirements.allTypes);
   const [sourceFilter, setSourceFilter] = useState("All Sources");
-  const [confFilter, setConfFilter] = useState(tr.requirements.allConfidence);
+  const [confFilter, setConfFilter] = useState<string>(tr.requirements.allConfidence);
   const [selected, setSelected] = useState<RequirementViewModel | null>(null);
   const [localShowGen, setLocalShowGen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -1305,6 +1309,7 @@ export function Requirements({
         onTransitionIssue={(issueId, action) => transitionIssue(selected.id, issueId, action)}
         onRetryIssues={() => refreshIssues(selected.id)}
         onValidate={validateSelected}
+        readOnly={readOnly}
       />
     );
   }
@@ -1319,7 +1324,7 @@ export function Requirements({
             <h1 style={{ fontSize: "19px", fontWeight: 600, color: "var(--foreground)", letterSpacing: "-0.02em" }}>{tr.requirements.title}</h1>
             <p style={{ fontSize: "13px", color: "var(--muted-foreground)", marginTop: "2px" }}>{tr.requirements.subtitle}</p>
           </div>
-          <div className="flex items-center gap-2">
+          {!readOnly && <div className="flex items-center gap-2">
             <div className="relative group">
               <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-3.5 py-2 rounded-xl border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)", fontSize: "13px", fontWeight: 500, color: "var(--foreground)" }}>
                 <Plus size={13} /> {tr.requirements.create}
@@ -1336,7 +1341,7 @@ export function Requirements({
                 {tr.requirements.generateHint}
               </div>
             </div>
-          </div>
+          </div>}
         </div>
 
         {/* Filters */}
@@ -1421,8 +1426,8 @@ export function Requirements({
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      {req.status === "Needs Review" && (
-                        <button disabled={busyRequirementId !== null} onClick={(e) => { e.stopPropagation(); void approve(req.id).then((succeeded) => { if (succeeded) toast.success("Requirement approved"); }); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
+                      {!readOnly && req.status === "Needs Review" && (
+                        <button disabled={busyRequirementId !== null} onClick={(e) => { e.stopPropagation(); void approve(req.id, { acknowledge_outdated_validation: false, acknowledge_open_high_issues: false }).then((succeeded) => { if (succeeded) toast.success("Requirement approved"); }); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
                           <CheckCircle size={10} /> {tr.requirements.approve}
                         </button>
                       )}
@@ -1488,7 +1493,7 @@ export function Requirements({
 
       {/* Generate from User Needs Modal */}
       {showGen && (
-        <Modal title="Generate Candidate Requirements" subtitle="Create candidate software requirements from confirmed User Needs and supporting evidence." onClose={generating ? undefined : closeGen} width="560px">
+        <Modal title="Generate Candidate Requirements" subtitle="Create candidate software requirements from confirmed User Needs and supporting evidence." onClose={closeGen} width="560px">
           <div className="px-5 py-4">
             {confirmedNeeds.length === 0 ? (
               <p style={{ fontSize: "13.5px", color: "#64748B", textAlign: "center", padding: "20px 0" }}>No confirmed User Needs available. Confirm needs in the User Needs tab first.</p>

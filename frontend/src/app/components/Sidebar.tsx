@@ -9,7 +9,7 @@ import type { Project } from "../data/mockData";
 import { useLanguage } from "../i18n/LanguageContext";
 import type { AuthUser } from "../../types/auth";
 
-type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports";
+type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports" | "settings";
 
 const ACTIVE_BG = "#EFF6FF";
 const ACTIVE_TEXT = "#1E3A8A";
@@ -88,6 +88,7 @@ export function Sidebar({
     { id: "requirements", label: tr.nav.requirements, icon: FileText },
     { id: "analysis", label: tr.nav.analysis, icon: BarChart3 },
     { id: "reports", label: tr.nav.reports, icon: ClipboardCheck },
+    { id: "settings", label: tr.nav.settings, icon: Settings },
   ];
 
   const badges: Partial<Record<Screen, number>> = {
@@ -220,7 +221,6 @@ export function Sidebar({
 
         <div className="pt-3">
           <SectionLabel>{tr.nav.system}</SectionLabel>
-          <NavBtn icon={Settings} label={tr.nav.settings} onClick={() => {}} />
           <NavBtn icon={HelpCircle} label={tr.nav.helpDocs} onClick={() => {}} />
         </div>
       </nav>

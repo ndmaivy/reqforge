@@ -4,9 +4,16 @@ import { toast } from "sonner";
 import type { FeedbackItem, FeedbackCategory, FeedbackSource, FeedbackStatus, Project } from "../data/mockData";
 import { Modal, ConfirmDialog } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
-import { getErrorMessage } from "../../services/api";
-import type { FeedbackCreateRequest, FeedbackImportResult } from "../../types/feedback";
+import { ApiError, getErrorMessage } from "../../services/api";
+import type { FeedbackCreateRequest, FeedbackImportResult, SimilarFeedbackDto } from "../../types/feedback";
 import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../../types/analysis";
+import {
+  createPublicForm,
+  getPublicForm,
+  rotatePublicFormToken,
+  updatePublicForm,
+} from "../../services/publicFeedback";
+import type { PublicFormDto, PublicFormTokenDto } from "../../types/publicFeedback";
 import { useLanguage } from "../i18n/LanguageContext";
 
 const FEEDBACK_SOURCES: FeedbackSource[] = [
@@ -41,15 +48,19 @@ interface FeedbackDetailProps {
   item: FeedbackItem;
   onClose: () => void;
   onArchive: () => void;
-  onSave: (text: string, category: FeedbackCategory) => Promise<void>;
+  onSave: (text: string, category: FeedbackCategory, isNoise: boolean) => Promise<void>;
   onAnalyze: () => Promise<void>;
+  similar: SimilarFeedbackDto[];
+  similarLoading: boolean;
+  readOnly: boolean;
 }
 
-function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: FeedbackDetailProps) {
+function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze, similar, similarLoading, readOnly }: FeedbackDetailProps) {
   const { tr } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(item.text);
   const [editCat, setEditCat] = useState<FeedbackCategory>(item.category);
+  const [editIsNoise, setEditIsNoise] = useState(item.isNoise);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -91,6 +102,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
             ...(item.sourceReference ? [{ label: tr.common.reference, value: item.sourceReference }] : []),
             ...(item.userSegment ? [{ label: tr.common.segment, value: item.userSegment }] : []),
             ...(item.context ? [{ label: tr.common.context, value: item.context }] : []),
+            ...(item.notes ? [{ label: "Notes", value: item.notes }] : []),
             { label: tr.common.date, value: item.date },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-start justify-between gap-2">
@@ -114,9 +126,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
 
           <div className="flex items-center justify-between">
             <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{tr.feedback.signalNoise}</span>
-            <span style={{ fontSize: "12px", fontWeight: 500, color: item.isNoise ? "#DC2626" : "#059669" }}>
-              {item.isNoise ? tr.feedback.likelyNoise : tr.feedback.usefulSignal}
-            </span>
+            {editing ? <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={editIsNoise} onChange={(event) => setEditIsNoise(event.target.checked)} /> Mark as noise</label> : <span style={{ fontSize: "12px", fontWeight: 500, color: item.isNoise ? "#DC2626" : "#059669" }}>{item.isNoise ? tr.feedback.likelyNoise : tr.feedback.usefulSignal}</span>}
           </div>
 
           {item.userNeedId && (
@@ -127,6 +137,22 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
               </span>
             </div>
           )}
+        </div>
+
+        <div>
+          <p style={{ fontSize: "10.5px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "7px" }}>Similar feedback</p>
+          {similarLoading ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500"><Loader size={12} className="animate-spin" /> Loading matches...</div>
+          ) : similar.length ? (
+            <div className="space-y-2">
+              {similar.slice(0, 5).map((match) => (
+                <div key={match.feedback.id} className="rounded-lg border p-2.5" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
+                  <p className="line-clamp-2" style={{ fontSize: "11.5px", lineHeight: 1.45 }}>{match.feedback.content}</p>
+                  <p className="mt-1" style={{ fontSize: "10.5px", color: "#64748B" }}>{Math.round(Number(match.score) * 100)}% match</p>
+                </div>
+              ))}
+            </div>
+          ) : <p style={{ fontSize: "11.5px", color: "#94A3B8" }}>No persisted similarity matches yet.</p>}
         </div>
 
         {/* AI info */}
@@ -148,7 +174,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
               </button>
             )}
           </div>
-        ) : (
+        ) : readOnly ? null : (
           <div className="rounded-lg p-3" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
             <p style={{ fontSize: "11.5px", color: "#92400E", marginBottom: "8px" }}>{tr.feedback.notAnalyzed}</p>
             <button onClick={async () => {
@@ -164,7 +190,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
         )}
       </div>
 
-      <div className="px-4 py-3 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
+      {!readOnly && <div className="px-4 py-3 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
         {editing ? (
           <div className="flex gap-2">
             <button onClick={async () => {
@@ -172,7 +198,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
               setSaving(true);
               setSaveError(null);
               try {
-                await onSave(editText.trim(), editCat);
+                await onSave(editText.trim(), editCat, editIsNoise);
                 setEditing(false);
                 toast.success(tr.feedback.changesSaved);
               } catch (error) {
@@ -186,7 +212,7 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
               style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>
               {saving ? tr.common.saving : tr.common.save}
             </button>
-            <button onClick={() => { setEditing(false); setEditText(item.text); setEditCat(item.category); }}
+            <button onClick={() => { setEditing(false); setEditText(item.text); setEditCat(item.category); setEditIsNoise(item.isNoise); }}
               className="px-3 py-2 rounded-md border hover:bg-gray-50"
               style={{ borderColor: "var(--border)", fontSize: "12.5px" }}>{tr.common.cancel}</button>
           </div>
@@ -199,109 +225,8 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze }: Feedbac
           </div>
         )}
         {saveError && <p style={{ fontSize: "11.5px", color: "#DC2626" }}>{saveError}</p>}
-      </div>
+      </div>}
     </div>
-  );
-}
-
-// ─── Public Form Modal ────────────────────────────────────────────────────────
-
-interface PublicFormProps {
-  project: Project;
-  onClose: () => void;
-  onSubmit: (text: string, context: string, userSegment: string) => void;
-}
-
-function PublicForm({ project, onClose, onSubmit }: PublicFormProps) {
-  const { tr } = useLanguage();
-  const [text, setText] = useState("");
-  const [context, setContext] = useState("");
-  const [userType, setUserType] = useState("Applicant");
-  const [submitted, setSubmitted] = useState(false);
-
-  const handleSubmit = () => {
-    if (!text.trim()) return;
-    setSubmitted(true);
-    setTimeout(() => {
-      onSubmit(text.trim(), context, userType);
-    }, 800);
-  };
-
-  return (
-    <Modal title="" onClose={onClose} width="480px">
-      {submitted ? (
-        <div className="flex flex-col items-center py-12 px-6">
-          <CheckCircle size={40} style={{ color: "#059669", marginBottom: "12px" }} />
-          <p style={{ fontSize: "16px", fontWeight: 600, color: "#059669", marginBottom: "6px" }}>{tr.feedback.thankYou}</p>
-          <p style={{ fontSize: "13px", color: "#64748B" }}>{tr.feedback.submitted}</p>
-        </div>
-      ) : (
-        <>
-          <div className="px-6 pt-4 pb-2 border-b" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
-            <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white" style={{ background: "#1E3A8A", fontSize: "11px", fontWeight: 700 }}>
-                {project.name.slice(0, 2).toUpperCase()}
-              </div>
-              <div>
-                <p style={{ fontSize: "14px", fontWeight: 700, color: "#0F172A" }}>{project.name}</p>
-                <p style={{ fontSize: "11.5px", color: "#64748B" }}>{tr.feedback.publicFormTitle}</p>
-              </div>
-            </div>
-            <p style={{ fontSize: "12px", color: "#64748B" }}>{tr.feedback.publicFormIntro}</p>
-          </div>
-          <div className="px-6 py-5 space-y-4">
-            <div>
-              <label style={{ fontSize: "12.5px", fontWeight: 500, color: "#374151", display: "block", marginBottom: "5px" }}>
-                Your feedback <span style={{ color: "#DC2626" }}>*</span>
-              </label>
-              <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4}
-                placeholder="Share what you experienced, found confusing, or would like to see improved..."
-                className="w-full rounded-md border px-3 py-2 outline-none resize-none"
-                style={{ borderColor: text.trim() ? "var(--border)" : text === "" ? "var(--border)" : "#DC2626", fontSize: "13px", background: "#F8FAFC" }} />
-            </div>
-            <div>
-              <label style={{ fontSize: "12.5px", fontWeight: 500, color: "#374151", display: "block", marginBottom: "5px" }}>
-                Where did you experience this?
-              </label>
-              <select value={context} onChange={(e) => setContext(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 outline-none"
-                style={{ borderColor: "var(--border)", fontSize: "13px", background: "#F8FAFC" }}>
-                <option value="">Select page or area...</option>
-                <option>Admissions</option>
-                <option>Programs</option>
-                <option>Tuition</option>
-                <option>Registration</option>
-                <option>Navigation</option>
-                <option>Student Services</option>
-                <option>News</option>
-                <option>Other</option>
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: "12.5px", fontWeight: 500, color: "#374151", display: "block", marginBottom: "5px" }}>
-                Who are you?
-              </label>
-              <select value={userType} onChange={(e) => setUserType(e.target.value)}
-                className="w-full rounded-md border px-3 py-2 outline-none"
-                style={{ borderColor: "var(--border)", fontSize: "13px", background: "#F8FAFC" }}>
-                <option>Applicant</option>
-                <option>Student</option>
-                <option>Parent</option>
-                <option>Staff</option>
-                <option>Other</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-2 px-6 py-4 border-t" style={{ borderColor: "var(--border)" }}>
-            <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50"
-              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>{tr.common.cancel}</button>
-            <button onClick={handleSubmit} disabled={!text.trim()}
-              className="flex-1 py-2 rounded-md text-white hover:opacity-90 disabled:opacity-50"
-              style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>{tr.feedback.submit}</button>
-          </div>
-        </>
-      )}
-    </Modal>
   );
 }
 
@@ -310,28 +235,63 @@ function PublicForm({ project, onClose, onSubmit }: PublicFormProps) {
 interface PublicLinkPanelProps {
   project: Project;
   onClose: () => void;
-  onOpenForm: () => void;
+  canManage: boolean;
 }
 
-function PublicLinkPanel({ project, onClose, onOpenForm }: PublicLinkPanelProps) {
-  const [enabled, setEnabled] = useState(true);
+function PublicLinkPanel({ project, onClose, canManage }: PublicLinkPanelProps) {
+  const [form, setForm] = useState<PublicFormDto | null>(null);
+  const [tokenForm, setTokenForm] = useState<PublicFormTokenDto | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [confirmDisable, setConfirmDisable] = useState(false);
 
-  const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
-  const url = `reqforge.app/f/${slug}`;
+  useEffect(() => {
+    getPublicForm(project.id)
+      .then(setForm)
+      .catch((reason) => {
+        if (!(reason instanceof ApiError && reason.status === 404)) setError(getErrorMessage(reason, "Unable to load public form."));
+      })
+      .finally(() => setLoading(false));
+  }, [project.id]);
 
-  const handleCopy = () => { navigator.clipboard.writeText(url).catch(() => {}); toast.success("Link copied"); };
+  const create = async () => {
+    setBusy(true); setError(null);
+    try {
+      const created = await createPublicForm(project.id, { title: `${project.name} feedback`, description: `Share feedback about ${project.productName || project.name}.` });
+      setForm(created); setTokenForm(created); toast.success("Public feedback form created");
+    } catch (reason) { setError(getErrorMessage(reason, "Unable to create public form.")); } finally { setBusy(false); }
+  };
+
+  const rotate = async () => {
+    setBusy(true); setError(null);
+    try { const rotated = await rotatePublicFormToken(project.id); setForm(rotated); setTokenForm(rotated); toast.success("A new public link was generated"); }
+    catch (reason) { setError(getErrorMessage(reason, "Unable to rotate public link.")); } finally { setBusy(false); }
+  };
+
+  const toggle = async () => {
+    if (!form) return;
+    setBusy(true); setError(null);
+    try { const updated = await updatePublicForm(project.id, { is_active: !form.is_active }); setForm(updated); setConfirmDisable(false); toast.success(updated.is_active ? "Public link enabled" : "Public link disabled"); }
+    catch (reason) { setError(getErrorMessage(reason, "Unable to update public form.")); } finally { setBusy(false); }
+  };
+
+  const url = tokenForm?.public_url ?? "Generate or rotate the token to reveal a shareable link";
+  const handleCopy = () => { if (!tokenForm) return; navigator.clipboard.writeText(tokenForm.public_url).catch(() => {}); toast.success("Link copied"); };
 
   return (
     <Modal title="Public Feedback Link" subtitle="Collect feedback directly from end users" onClose={onClose} width="480px">
       <div className="px-5 py-5 space-y-4">
+        {loading ? <div className="flex justify-center py-8"><Loader className="animate-spin" /></div> : !form ? (
+          <div className="rounded-xl border p-5 text-center" style={{ borderColor: "var(--border)" }}><p className="mb-3 text-sm text-slate-600">This project does not have a public feedback form yet.</p>{canManage && <button disabled={busy} onClick={() => void create()} className="rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Creating..." : "Create public form"}</button>}</div>
+        ) : <>
         {/* Status + URL */}
         <div className="rounded-xl border p-4" style={{ background: "#F8FAFC", borderColor: "var(--border)" }}>
           <div className="flex items-center justify-between mb-3">
             <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#374151" }}>Status</span>
-            <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: enabled ? "#ECFDF5" : "#F1F5F9", fontSize: "11px", fontWeight: 600, color: enabled ? "#059669" : "#64748B" }}>
-              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: enabled ? "#059669" : "#94A3B8" }} />
-              {enabled ? "Active" : "Disabled"}
+            <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: form.is_active ? "#ECFDF5" : "#F1F5F9", fontSize: "11px", fontWeight: 600, color: form.is_active ? "#059669" : "#64748B" }}>
+              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: form.is_active ? "#059669" : "#94A3B8" }} />
+              {form.is_active ? "Active" : "Disabled"}
             </span>
           </div>
           <div className="flex items-center gap-2 p-2.5 rounded-lg border" style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}>
@@ -342,32 +302,35 @@ function PublicLinkPanel({ project, onClose, onOpenForm }: PublicLinkPanelProps)
 
         {/* Actions */}
         <div className="grid grid-cols-3 gap-2">
-          <button onClick={handleCopy} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)" }}>
+          <button disabled={!tokenForm} onClick={handleCopy} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-gray-50 disabled:opacity-40 transition-colors" style={{ borderColor: "var(--border)" }}>
             <Copy size={16} style={{ color: "#1E3A8A" }} />
             <span style={{ fontSize: "11.5px", fontWeight: 500, color: "#374151" }}>Copy Link</span>
           </button>
-          <button onClick={onOpenForm} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)" }}>
+          <button disabled={!tokenForm} onClick={() => tokenForm && window.open(tokenForm.public_url, "_blank", "noopener,noreferrer")} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-gray-50 disabled:opacity-40 transition-colors" style={{ borderColor: "var(--border)" }}>
             <ExternalLink size={16} style={{ color: "#1E3A8A" }} />
             <span style={{ fontSize: "11.5px", fontWeight: 500, color: "#374151" }}>Open Form</span>
           </button>
-          <button onClick={() => setConfirmDisable(true)} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-red-50 transition-colors" style={{ borderColor: enabled ? "#FCA5A5" : "var(--border)" }}>
-            <X size={16} style={{ color: enabled ? "#DC2626" : "#94A3B8" }} />
-            <span style={{ fontSize: "11.5px", fontWeight: 500, color: enabled ? "#DC2626" : "#94A3B8" }}>{enabled ? "Disable" : "Enable"}</span>
+          <button disabled={busy || !canManage} onClick={() => setConfirmDisable(true)} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-red-50 disabled:opacity-50 transition-colors" style={{ borderColor: form.is_active ? "#FCA5A5" : "var(--border)" }}>
+            <X size={16} style={{ color: form.is_active ? "#DC2626" : "#94A3B8" }} />
+            <span style={{ fontSize: "11.5px", fontWeight: 500, color: form.is_active ? "#DC2626" : "#64748B" }}>{form.is_active ? "Disable" : "Enable"}</span>
           </button>
         </div>
 
         <p style={{ fontSize: "11.5px", color: "#94A3B8", lineHeight: 1.5 }}>
           End users can submit feedback without a ReqForge account. Submissions appear in your Feedback Inbox with source "Public Feedback Form".
         </p>
+        {canManage && <button disabled={busy} onClick={() => void rotate()} className="w-full rounded-lg border py-2 text-xs font-semibold text-blue-900 disabled:opacity-50" style={{ borderColor: "#BFDBFE" }}>{tokenForm ? "Rotate link token" : "Generate a new shareable link"}</button>}
+        </>}
+        {error && <p className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</p>}
       </div>
 
       {confirmDisable && (
         <ConfirmDialog
-          title={enabled ? "Disable Public Feedback Link?" : "Enable Public Feedback Link?"}
-          message={enabled ? "The form will stop accepting new submissions." : "The form will be ready to accept new submissions."}
-          confirmLabel={enabled ? "Disable" : "Enable"}
-          confirmDanger={enabled}
-          onConfirm={() => { setEnabled(!enabled); setConfirmDisable(false); toast.success(enabled ? "Public link disabled" : "Public link enabled"); }}
+          title={form?.is_active ? "Disable Public Feedback Link?" : "Enable Public Feedback Link?"}
+          message={form?.is_active ? "The form will stop accepting new submissions." : "The form will be ready to accept new submissions."}
+          confirmLabel={form?.is_active ? "Disable" : "Enable"}
+          confirmDanger={form?.is_active}
+          onConfirm={() => void toggle()}
           onCancel={() => setConfirmDisable(false)}
         />
       )}
@@ -433,7 +396,7 @@ function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onR
   const finish = () => { onViewNeeds ? onViewNeeds() : onClose(); };
 
   return (
-    <Modal title={tr.feedback.analyzeTitle} onClose={step === "loading" ? undefined : onClose} width="620px">
+    <Modal title={tr.feedback.analyzeTitle} onClose={onClose} width="620px">
       {step === "config" && (
         <>
           <div className="px-5 py-5 space-y-4">
@@ -537,9 +500,9 @@ interface FeedbackManagementProps {
   onRecordFeedback: (payload: FeedbackCreateRequest) => Promise<void>;
   onImportFeedback: (file: File) => Promise<FeedbackImportResult>;
   onLoadFeedbackDetail: (feedbackId: string) => Promise<FeedbackItem>;
-  onSaveFeedback: (feedbackId: string, content: string, category: FeedbackCategory) => Promise<FeedbackItem>;
+  onLoadSimilarFeedback: (feedbackId: string) => Promise<SimilarFeedbackDto[]>;
+  onSaveFeedback: (feedbackId: string, content: string, category: FeedbackCategory, isNoise: boolean) => Promise<FeedbackItem>;
   onArchiveFeedback: (feedbackId: string) => Promise<FeedbackItem>;
-  onAddFeedback: (item: FeedbackItem) => void;
   onAnalyzeFeedback: (payload: FeedbackAnalysisRequest, signal?: AbortSignal) => Promise<AnalysisRunDto>;
   onNavigate?: (screen: string) => void;
   showAddModal?: boolean;
@@ -552,12 +515,13 @@ interface FeedbackManagementProps {
 
 export function FeedbackManagement({
   project, feedback, loading, loadError, onRetry,
-  onRecordFeedback, onImportFeedback, onLoadFeedbackDetail, onSaveFeedback, onArchiveFeedback,
-  onAddFeedback, onAnalyzeFeedback, onNavigate,
+  onRecordFeedback, onImportFeedback, onLoadFeedbackDetail, onLoadSimilarFeedback, onSaveFeedback, onArchiveFeedback,
+  onAnalyzeFeedback, onNavigate,
   showAddModal = false, showImportModal = false, showPublicLinkModal = false,
   onCloseAddModal, onCloseImportModal, onClosePublicLinkModal,
 }: FeedbackManagementProps) {
   const { tr } = useLanguage();
+  const canEdit = project.currentUserRole !== "VIEWER" && project.status !== "Archived";
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All Categories");
   const [sourceFilter, setSourceFilter] = useState("All Sources");
@@ -571,8 +535,9 @@ export function FeedbackManagement({
   const [localShowImport, setLocalShowImport] = useState(false);
   const [showAnalyze, setShowAnalyze] = useState(false);
   const [showPublicLink, setShowPublicLink] = useState(false);
-  const [showPublicForm, setShowPublicForm] = useState(false);
   const [analysisSelection, setAnalysisSelection] = useState<Set<string>>(new Set());
+  const [similarFeedback, setSimilarFeedback] = useState<SimilarFeedbackDto[]>([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
 
   const [importStep, setImportStep] = useState<"idle" | "uploading" | "done">("idle");
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -648,6 +613,9 @@ export function FeedbackManagement({
       await onRecordFeedback({
         content: recordForm.text.trim(),
         source: recordForm.source,
+        user_segment: recordForm.userSegment.trim() || null,
+        context: recordForm.context.trim() || null,
+        notes: [recordForm.sourceReference.trim(), recordForm.notes.trim()].filter(Boolean).join(" — ") || null,
         feedback_date: parseFeedbackDate(recordForm.collectedDate),
       });
       closeRecord();
@@ -666,14 +634,22 @@ export function FeedbackManagement({
     }
     if (detailLoadingId) return;
     setDetailLoadingId(item.id);
+    setSimilarLoading(true);
+    setSimilarFeedback([]);
     const toastId = toast.loading(tr.feedback.detailLoading);
     try {
-      setSelected(await onLoadFeedbackDetail(item.id));
+      const [detail, similar] = await Promise.all([
+        onLoadFeedbackDetail(item.id),
+        onLoadSimilarFeedback(item.id),
+      ]);
+      setSelected(detail);
+      setSimilarFeedback(similar);
       toast.dismiss(toastId);
     } catch (error) {
       toast.error(getErrorMessage(error, tr.feedback.detailError), { id: toastId });
     } finally {
       setDetailLoadingId(null);
+      setSimilarLoading(false);
     }
   };
 
@@ -736,26 +712,6 @@ export function FeedbackManagement({
     }
   };
 
-  const handlePublicFormSubmit = (text: string, context: string, userSegment: string) => {
-    const now = "Just now";
-    const isAdmissionsReadability = text.toLowerCase().includes("admissions") || (context === "Admissions" && text.toLowerCase().includes("small"));
-    const newItem: FeedbackItem = {
-      id: isAdmissionsReadability ? "FB-129" : `FB-${String(feedback.length + 200).padStart(3, "0")}`,
-      projectId: project.id,
-      text,
-      category: "Usability",
-      source: "Public Feedback Form",
-      status: "New",
-      date: now,
-      isNoise: false,
-      userSegment: userSegment || undefined,
-      context: context || undefined,
-    };
-    onAddFeedback(newItem);
-    setShowPublicForm(false);
-    toast.success("Feedback submitted");
-  };
-
   return (
     <div className="flex flex-1 overflow-hidden">
       <div className="flex-1 overflow-y-auto">
@@ -767,7 +723,7 @@ export function FeedbackManagement({
               <h1 style={{ fontSize: "19px", fontWeight: 700, color: "var(--foreground)", letterSpacing: "-0.02em" }}>{tr.feedback.inboxTitle}</h1>
               <p style={{ fontSize: "13px", color: "var(--muted-foreground)", marginTop: "2px" }}>{tr.feedback.inboxSubtitle}</p>
             </div>
-            <div className="flex items-center gap-2">
+            {canEdit && <div className="flex items-center gap-2">
               <button onClick={() => setShowPublicLink(true)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg border hover:bg-gray-50 transition-colors whitespace-nowrap"
                 style={{ borderColor: "var(--border)", fontSize: "12.5px", color: "#64748B" }}>
@@ -789,7 +745,7 @@ export function FeedbackManagement({
                 style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
                 <Plus size={14} /> Record Feedback
               </button>
-            </div>
+            </div>}
           </div>
 
           {/* Summary Stats */}
@@ -908,7 +864,8 @@ export function FeedbackManagement({
                             role="switch"
                             aria-checked={analysisSelection.has(fb.id)}
                             disabled={fb.status === "Archived"}
-                            onClick={(event) => { event.stopPropagation(); toggleAnalysisSelection(fb.id); }}
+                            aria-disabled={!canEdit || fb.status === "Archived"}
+                            onClick={(event) => { event.stopPropagation(); if (canEdit) toggleAnalysisSelection(fb.id); }}
                             className="relative h-5 w-9 rounded-full transition-colors disabled:opacity-40"
                             style={{ background: analysisSelection.has(fb.id) ? "#1E3A8A" : "#CBD5E1" }}
                             title={tr.feedback.selectForAnalysis}
@@ -917,9 +874,9 @@ export function FeedbackManagement({
                           </button>
                         </td>
                         <td className="px-4 py-3">
-                          <button onClick={(e) => { e.stopPropagation(); setArchiveTarget(fb); }}>
+                          {canEdit && <button onClick={(e) => { e.stopPropagation(); setArchiveTarget(fb); }}>
                             <MoreHorizontal size={14} style={{ color: "#CBD5E1" }} />
-                          </button>
+                          </button>}
                         </td>
                       </tr>
                     );
@@ -942,11 +899,14 @@ export function FeedbackManagement({
           item={selected}
           onClose={() => setSelected(null)}
           onArchive={() => setArchiveTarget(selected)}
-          onSave={async (text, category) => {
-            const updated = await onSaveFeedback(selected.id, text, category);
+          onSave={async (text, category, isNoise) => {
+            const updated = await onSaveFeedback(selected.id, text, category, isNoise);
             setSelected(updated);
           }}
           onAnalyze={() => handleAnalyzeSingle(selected)}
+          similar={similarFeedback}
+          similarLoading={similarLoading}
+          readOnly={!canEdit}
         />
       )}
 
@@ -1126,16 +1086,7 @@ export function FeedbackManagement({
         <PublicLinkPanel
           project={project}
           onClose={closePublicLinkVisible}
-          onOpenForm={() => { setShowPublicLink(false); onClosePublicLinkModal?.(); setShowPublicForm(true); }}
-        />
-      )}
-
-      {/* Public Form Preview */}
-      {showPublicForm && (
-        <PublicForm
-          project={project}
-          onClose={() => setShowPublicForm(false)}
-          onSubmit={handlePublicFormSubmit}
+          canManage={project.currentUserRole === "OWNER"}
         />
       )}
 

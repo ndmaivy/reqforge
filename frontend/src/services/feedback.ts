@@ -4,6 +4,7 @@ import type {
   FeedbackCreateRequest,
   FeedbackDto,
   FeedbackImportResult,
+  SimilarFeedbackDto,
   FeedbackUpdateRequest,
 } from "../types/feedback";
 
@@ -15,11 +16,25 @@ export async function listFeedback(
   projectId: string,
   page = 1,
   pageSize = 100,
+  filters: { status?: string; source?: string; category?: string; search?: string } = {},
 ): Promise<ListResponse<FeedbackDto>> {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
   return apiRequest<ListResponse<FeedbackDto>>(
     `${projectFeedbackPath(projectId)}?${params.toString()}`,
   );
+}
+
+export async function listSimilarFeedback(
+  projectId: string,
+  feedbackId: string,
+): Promise<SimilarFeedbackDto[]> {
+  const response = await apiRequest<DataResponse<SimilarFeedbackDto[]>>(
+    `${projectFeedbackPath(projectId)}/${encodeURIComponent(feedbackId)}/similar`,
+  );
+  return response.data;
 }
 
 export async function createFeedback(

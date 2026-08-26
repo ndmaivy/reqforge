@@ -1,10 +1,12 @@
 import { useState, useMemo } from "react";
-import { AlertTriangle, CheckCircle, ArrowRight, Plus, Eye, Check, X, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle, ArrowRight, Plus, Eye, Check, X, Sparkles, Loader } from "lucide-react";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import type { Requirement, RequirementIssue, UserNeed, FeedbackItem } from "../data/mockData";
 import { SimpleSelect } from "./SimpleSelect";
 import { useLanguage } from "../i18n/LanguageContext";
+import { getErrorMessage } from "../../services/api";
+import type { AnalysisRunDto } from "../../types/analysis";
 
 
 interface AnalysisProps {
@@ -12,10 +14,13 @@ interface AnalysisProps {
   issues: RequirementIssue[];
   needs: UserNeed[];
   feedback: FeedbackItem[];
-  onUpdateIssue: (id: string, changes: Partial<RequirementIssue>) => void;
+  runs: AnalysisRunDto[];
+  onRunConsistency: (signal?: AbortSignal) => Promise<AnalysisRunDto>;
+  onTransitionIssue: (issue: RequirementIssue, action: "resolve" | "dismiss") => Promise<void>;
+  readOnly?: boolean;
 }
 
-export function Analysis({ requirements, issues, needs, feedback, onUpdateIssue }: AnalysisProps) {
+export function Analysis({ requirements, issues, needs, feedback, runs, onRunConsistency, onTransitionIssue, readOnly = false }: AnalysisProps) {
   const { tr } = useLanguage();
   const SCOPE_ALL = "All";
   const SCOPE_FEEDBACK = "Feedback Analysis";
@@ -26,6 +31,7 @@ export function Analysis({ requirements, issues, needs, feedback, onUpdateIssue 
   const scopeOptions = [SCOPE_ALL, SCOPE_FEEDBACK, SCOPE_NEEDS, SCOPE_GENERATION, SCOPE_VALIDATION, SCOPE_CONSISTENCY];
   const [scope, setScope] = useState(SCOPE_ALL);
   const [activeTab, setActiveTab] = useState<"issues" | "coverage">("issues");
+  const [runningConsistency, setRunningConsistency] = useState(false);
 
   const confirmedNeeds = needs.filter((n) => n.status === "Confirmed");
   const coveredNeeds = confirmedNeeds.filter((n) => requirements.some((r) => r.sourceNeedId === n.id && r.status !== "Rejected"));
@@ -74,6 +80,20 @@ export function Analysis({ requirements, issues, needs, feedback, onUpdateIssue 
   };
 
   const severityColors: Record<string, string> = { High: "#DC2626", Medium: "#D97706", Low: "#059669" };
+  const latestRun = runs[0];
+
+  const runConsistency = async () => {
+    if (runningConsistency) return;
+    setRunningConsistency(true);
+    try { await onRunConsistency(); toast.success("Consistency check completed"); }
+    catch (error) { toast.error(getErrorMessage(error, "Consistency check failed.")); }
+    finally { setRunningConsistency(false); }
+  };
+
+  const transition = async (issue: RequirementIssue, action: "resolve" | "dismiss") => {
+    try { await onTransitionIssue(issue, action); toast.success(action === "resolve" ? "Issue resolved" : "Issue dismissed"); }
+    catch (error) { toast.error(getErrorMessage(error, "Unable to update issue.")); }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -87,10 +107,16 @@ export function Analysis({ requirements, issues, needs, feedback, onUpdateIssue 
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-md" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
               <Sparkles size={12} style={{ color: "#1E3A8A" }} />
-              <span style={{ fontSize: "12.5px", color: "#1E3A8A", fontWeight: 500 }}>Updated 18 Aug 2026 09:42</span>
+              <span style={{ fontSize: "12.5px", color: "#1E3A8A", fontWeight: 500 }}>{latestRun ? `Updated ${new Date(latestRun.created_at).toLocaleString()}` : "No analysis runs yet"}</span>
             </div>
+            {!readOnly && <button onClick={() => void runConsistency()} disabled={runningConsistency} className="flex items-center gap-1.5 rounded-md bg-blue-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{runningConsistency ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />} Check consistency</button>}
             <SimpleSelect value={scope} options={scopeOptions} onChange={(v) => { setScope(v); setActiveTab("issues"); }} />
           </div>
+        </div>
+
+        <div className="mb-5 rounded-lg border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
+          <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)" }}><h3 className="text-sm font-semibold">Analysis run history</h3></div>
+          {runs.length ? <div className="divide-y">{runs.slice(0, 8).map((run) => <div key={run.id} className="grid grid-cols-[1.5fr_1fr_1fr_1fr] items-center gap-3 px-4 py-3 text-xs"><span className="font-medium">{run.analysis_type.replace(/_/g, " ")}</span><span className={run.status === "FAILED" ? "text-red-600" : run.status === "COMPLETED" ? "text-emerald-700" : "text-amber-700"}>{run.status}</span><span className="truncate text-slate-500">{run.model || "—"}</span><span className="text-right text-slate-500">{new Date(run.created_at).toLocaleString()}</span></div>)}</div> : <p className="px-4 py-6 text-center text-xs text-slate-500">No analysis runs for this project.</p>}
         </div>
 
         {/* Scope-specific context banner */}
@@ -246,12 +272,12 @@ export function Analysis({ requirements, issues, needs, feedback, onUpdateIssue 
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      {issue.status === "Open" && (
+                      {!readOnly && issue.status === "Open" && (
                         <div className="flex items-center gap-1">
-                          <button onClick={() => { onUpdateIssue(issue.id, { status: "Resolved" }); toast.success("Issue resolved"); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 transition-colors" style={{ fontSize: "11.5px", color: "#059669" }}>
+                          <button onClick={() => void transition(issue, "resolve")} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 transition-colors" style={{ fontSize: "11.5px", color: "#059669" }}>
                             <Check size={10} /> {tr.analysis.resolve}
                           </button>
-                          <button onClick={() => { onUpdateIssue(issue.id, { status: "Dismissed" }); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 transition-colors" style={{ fontSize: "11.5px", color: "#94A3B8" }}>
+                          <button onClick={() => void transition(issue, "dismiss")} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 transition-colors" style={{ fontSize: "11.5px", color: "#94A3B8" }}>
                             <X size={10} /> {tr.analysis.dismiss}
                           </button>
                         </div>

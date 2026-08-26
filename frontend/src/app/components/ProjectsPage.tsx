@@ -53,9 +53,9 @@ export function ProjectsPage({
 }: ProjectsPageProps) {
   const { tr } = useLanguage();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState(tr.projects.allStatuses);
-  const [platformFilter, setPlatformFilter] = useState(tr.projects.allPlatforms);
-  const [sortBy, setSortBy] = useState(tr.projects.recentlyUpdated);
+  const [statusFilter, setStatusFilter] = useState<string>(tr.projects.allStatuses);
+  const [platformFilter, setPlatformFilter] = useState<string>(tr.projects.allPlatforms);
+  const [sortBy, setSortBy] = useState<string>(tr.projects.recentlyUpdated);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateProjectFormData>(emptyForm());
   const [errors, setErrors] = useState<Partial<CreateProjectFormData>>({});

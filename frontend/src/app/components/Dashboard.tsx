@@ -22,9 +22,10 @@ interface DashboardProps {
   onRunAnalysis: () => void;
   onOpenGenerateReqs: () => void;
   onOpenPublicLink?: () => void;
+  readOnly?: boolean;
 }
 
-export function Dashboard({ project, feedback, needs, requirements, activities, onNavigate, onOpenAddFeedback, onOpenImport, onRunAnalysis, onOpenGenerateReqs, onOpenPublicLink }: DashboardProps) {
+export function Dashboard({ project, feedback, needs, requirements, activities, onNavigate, onOpenAddFeedback, onOpenImport, onRunAnalysis, onOpenGenerateReqs, onOpenPublicLink, readOnly = false }: DashboardProps) {
   const { tr } = useLanguage();
   const approvedCount = requirements.filter((r) => r.status === "Approved").length;
   const openIssues = requirements.reduce((s, r) => s + r.issueCount, 0);
@@ -55,14 +56,14 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
             <h1 style={{ fontSize: "19px", fontWeight: 600, color: "var(--foreground)", letterSpacing: "-0.02em" }}>{project.name}</h1>
             <p style={{ fontSize: "13px", color: "var(--muted-foreground)", marginTop: "2px" }}>{project.description}</p>
           </div>
-          <div className="flex items-center gap-2">
+          {!readOnly && <div className="flex items-center gap-2">
             <button onClick={onRunAnalysis} className="flex items-center gap-2 px-3.5 py-2 rounded-md border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)", fontSize: "13px", fontWeight: 500, color: "var(--foreground)" }}>
               <Sparkles size={13} style={{ color: "#1E3A8A" }} /> {tr.dashboard.analyzeAI}
             </button>
             <button onClick={onOpenAddFeedback} className="flex items-center gap-2 px-3.5 py-2 rounded-2xl text-white hover:opacity-90 transition-all" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
               <Plus size={14} /> Record Feedback
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* KPI Cards */}
@@ -111,7 +112,7 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
             </div>
 
             {/* Quick Actions */}
-            <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
+            {!readOnly && <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)", background: "#F8FAFC" }}>
               <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>{tr.dashboard.quickActions}</p>
               <div className="flex flex-wrap gap-2">
                 {[
@@ -126,7 +127,7 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
                   </button>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
 
           {/* Trend chart */}

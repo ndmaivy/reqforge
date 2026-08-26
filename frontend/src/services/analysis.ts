@@ -1,8 +1,11 @@
 import { apiRequest } from "./api";
-import type { DataResponse } from "./api";
+import type { DataResponse, ListResponse } from "./api";
 import type {
   AnalysisAcceptedDto,
   AnalysisRunDto,
+  AnalysisStatus,
+  AnalysisType,
+  ConsistencyFindingDto,
   FeedbackAnalysisRequest,
   RequirementGenerationRequest,
 } from "../types/analysis";
@@ -19,6 +22,50 @@ export async function startFeedbackAnalysis(
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(payload),
     },
+  );
+  return response.data;
+}
+
+export async function listAnalysisRuns(
+  projectId: string,
+  filters: { analysisType?: AnalysisType; status?: AnalysisStatus } = {},
+  page = 1,
+  pageSize = 100,
+): Promise<ListResponse<AnalysisRunDto>> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (filters.analysisType) params.set("analysis_type", filters.analysisType);
+  if (filters.status) params.set("status", filters.status);
+  return apiRequest<ListResponse<AnalysisRunDto>>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/analysis-runs?${params.toString()}`,
+  );
+}
+
+export async function startConsistencyCheck(
+  projectId: string,
+  idempotencyKey: string,
+): Promise<AnalysisAcceptedDto> {
+  const response = await apiRequest<DataResponse<AnalysisAcceptedDto>>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/analysis/consistency`,
+    { method: "POST", headers: { "Idempotency-Key": idempotencyKey } },
+  );
+  return response.data;
+}
+
+export async function listConsistencyFindings(projectId: string): Promise<ConsistencyFindingDto[]> {
+  const response = await apiRequest<DataResponse<ConsistencyFindingDto[]>>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/consistency-findings`,
+  );
+  return response.data;
+}
+
+export async function transitionConsistencyFinding(
+  projectId: string,
+  findingId: string,
+  action: "resolve" | "dismiss",
+): Promise<ConsistencyFindingDto> {
+  const response = await apiRequest<DataResponse<ConsistencyFindingDto>>(
+    `/api/v1/projects/${encodeURIComponent(projectId)}/consistency-findings/${encodeURIComponent(findingId)}/${action}`,
+    { method: "POST" },
   );
   return response.data;
 }

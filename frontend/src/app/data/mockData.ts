@@ -45,6 +45,10 @@ export interface FeedbackItem {
   userSegment?: string;
   sourceReference?: string;
   context?: string;
+  notes?: string;
+  publicFormId?: string;
+  submittedById?: string;
+  archivedAt?: string;
 }
 
 export interface UserNeed {
@@ -82,6 +86,7 @@ export interface RequirementIssue {
   description: string;
   suggestion: string;
   status: IssueStatus;
+  origin?: 'requirement' | 'consistency';
 }
 
 export interface Activity {

@@ -47,3 +47,12 @@ export interface ProjectMemberDto {
   role: ProjectRoleDto;
   joined_at: string;
 }
+
+export interface ProjectMemberCreateRequest {
+  email: string;
+  role: Exclude<ProjectRoleDto, "OWNER">;
+}
+
+export interface ProjectMemberUpdateRequest {
+  role: Exclude<ProjectRoleDto, "OWNER">;
+}

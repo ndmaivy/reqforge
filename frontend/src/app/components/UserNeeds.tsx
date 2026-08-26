@@ -38,6 +38,7 @@ interface NeedDetailProps {
   onReject: () => Promise<boolean>;
   onSave: (title: string, description: string) => Promise<boolean>;
   onReviewSourceFeedback: () => void;
+  readOnly: boolean;
 }
 
 function feedbackStatusLabel(
@@ -86,7 +87,7 @@ function SourceFeedbackModal({ feedback, onClose, onAnalyze }: SourceFeedbackMod
   };
 
   return (
-    <Modal title={tr.userNeeds.sourceFeedbackTitle} subtitle={tr.userNeeds.sourceFeedbackSubtitle} onClose={running ? undefined : onClose} width="620px">
+    <Modal title={tr.userNeeds.sourceFeedbackTitle} subtitle={tr.userNeeds.sourceFeedbackSubtitle} onClose={onClose} width="620px">
       <div className="px-5 py-5">
         {!feedback.length ? <p style={{ fontSize: "13px", color: "#64748B" }}>{tr.userNeeds.noSourceFeedback}</p> : <div className="max-h-80 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>{feedback.map((item) => <label key={item.id} className="flex cursor-pointer gap-3 border-b px-3 py-3 last:border-b-0" style={{ borderColor: "#F1F5F9", background: selectedIds.has(item.id) ? "#EFF6FF" : "#fff" }}><input type="checkbox" className="mt-1" disabled={item.status === "ARCHIVED"} checked={selectedIds.has(item.id)} onChange={() => toggle(item.id)} /><span className="min-w-0 flex-1"><span className="block line-clamp-2" style={{ fontSize: "12.5px", color: "#0F172A" }}>{item.content}</span><span className="mt-1 block" style={{ fontSize: "11px", color: "#64748B" }}>{item.source ?? tr.common.none} · {item.feedback_date ?? tr.common.none} · {feedbackStatusLabel(item.status, tr)}</span></span></label>)}</div>}
         {error && <p className="mt-3 rounded-md px-3 py-2" style={{ background: "#FEF2F2", color: "#B91C1C", fontSize: "12px" }}>{error}</p>}
@@ -99,7 +100,7 @@ function SourceFeedbackModal({ feedback, onClose, onAnalyze }: SourceFeedbackMod
   );
 }
 
-function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave, onReviewSourceFeedback }: NeedDetailProps) {
+function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave, onReviewSourceFeedback, readOnly }: NeedDetailProps) {
   const { tr } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(need.title);
@@ -228,7 +229,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
       </div>
 
       {/* Actions */}
-      <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
+      {!readOnly && <div className="px-4 py-3 border-t" style={{ borderColor: "var(--border)" }}>
         {editing ? (
           <div className="flex gap-2">
             <button disabled={actionBusy || !editTitle.trim() || !editDesc.trim()} onClick={async () => { if (await onSave(editTitle.trim(), editDesc.trim())) setEditing(false); }} className="flex-1 py-2 rounded-md text-white text-center hover:opacity-90 disabled:opacity-60 transition-all" style={{ background: "#059669", fontSize: "12.5px", fontWeight: 500 }}>{actionBusy ? tr.common.saving : tr.userNeeds.save}</button>
@@ -254,7 +255,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
             )}
           </div>
         )}
-      </div>
+      </div>}
 
       {rejectConfirm && (
         <ConfirmDialog
@@ -281,6 +282,7 @@ interface UserNeedsProps {
   onConfirmNeed: (needId: string) => Promise<UserNeedViewModel>;
   onRejectNeed: (needId: string) => Promise<UserNeedViewModel>;
   onAnalyzeSourceFeedback: (feedbackIds: string[]) => Promise<void>;
+  readOnly?: boolean;
 }
 
 export function UserNeeds({
@@ -294,11 +296,12 @@ export function UserNeeds({
   onConfirmNeed,
   onRejectNeed,
   onAnalyzeSourceFeedback,
+  readOnly = false,
 }: UserNeedsProps) {
   const { tr } = useLanguage();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState(tr.userNeeds.allStatuses);
-  const [confFilter, setConfFilter] = useState(tr.userNeeds.allConfidence);
+  const [statusFilter, setStatusFilter] = useState<string>(tr.userNeeds.allStatuses);
+  const [confFilter, setConfFilter] = useState<string>(tr.userNeeds.allConfidence);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<UserNeedDetailDto | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -506,7 +509,7 @@ export function UserNeeds({
                         {need.trend && <span style={{ fontSize: "11px", color: "#059669" }}>{need.trend}</span>}
                       </div>
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        {need.status === "Candidate" && (
+                        {!readOnly && need.status === "Candidate" && (
                           <button disabled={actionNeedId !== null} onClick={() => void confirm(need.id)}
                             className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
                             <CheckCircle size={10} /> {tr.userNeeds.confirm}
@@ -539,6 +542,7 @@ export function UserNeeds({
           onReject={() => reject(selected.id)}
           onSave={(title, description) => save(selected.id, title, description)}
           onReviewSourceFeedback={() => setShowSourceFeedback(true)}
+          readOnly={readOnly}
         />
       )}
       {showSourceFeedback && selected && detail?.id === selected.id && (

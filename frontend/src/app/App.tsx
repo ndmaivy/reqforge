@@ -11,12 +11,11 @@ import { Requirements } from "./components/Requirements";
 import { Analysis } from "./components/Analysis";
 import { Reports } from "./components/Reports";
 import { AuthPage } from "./components/AuthPage";
-import {
-  INITIAL_ISSUES, INITIAL_ACTIVITIES,
-} from "./data/mockData";
+import { PublicFeedbackPage } from "./components/PublicFeedbackPage";
+import { ProjectSettings } from "./components/ProjectSettings";
 import type {
   Project, Platform, FeedbackItem, FeedbackCategory, FeedbackSource,
-  Requirement, RequirementIssue, RequirementStatus, RequirementType,
+  Requirement, RequirementIssue, RequirementStatus, RequirementType, Activity,
 } from "./data/mockData";
 import type { CreateProjectFormData } from "./components/ProjectsPage";
 import {
@@ -30,26 +29,34 @@ import { getCurrentUser } from "../services/auth";
 import type { AuthResponse, AuthUser } from "../types/auth";
 import {
   createProject as createProjectRequest,
+  archiveProject as archiveProjectRequest,
   getProject,
+  leaveProject as leaveProjectRequest,
   listProjects,
+  updateProject as updateProjectRequest,
 } from "../services/projects";
-import type { ProjectDto } from "../types/project";
+import type { ProjectDto, ProjectUpdateRequest } from "../types/project";
 import {
   archiveFeedback as archiveFeedbackRequest,
   createFeedback as createFeedbackRequest,
   getFeedback as getFeedbackRequest,
   importFeedback as importFeedbackRequest,
   listFeedback,
+  listSimilarFeedback,
   updateFeedback as updateFeedbackRequest,
 } from "../services/feedback";
-import type { FeedbackCreateRequest, FeedbackDto, FeedbackImportResult } from "../types/feedback";
+import type { FeedbackCreateRequest, FeedbackDto, FeedbackImportResult, SimilarFeedbackDto } from "../types/feedback";
 import {
   pollAnalysisRun,
+  listAnalysisRuns,
+  listConsistencyFindings,
   startFeedbackAnalysis,
+  startConsistencyCheck,
   startRequirementGeneration,
   startRequirementValidation,
+  transitionConsistencyFinding,
 } from "../services/analysis";
-import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../types/analysis";
+import type { AnalysisRunDto, ConsistencyFindingDto, FeedbackAnalysisRequest } from "../types/analysis";
 import {
   confirmNeed as confirmNeedRequest,
   getNeedTrends,
@@ -89,7 +96,7 @@ import type {
   RequirementViewModel,
 } from "../types/requirement";
 
-type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports";
+type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports" | "settings";
 
 const supportedPlatforms: Platform[] = ["Web", "Mobile", "Desktop", "Web + Mobile", "Other"];
 const supportedFeedbackSources: FeedbackSource[] = [
@@ -103,6 +110,16 @@ const feedbackCategories: Record<string, FeedbackCategory> = {
   COMPLAINT: "Complaint",
   SUGGESTION: "Suggestion",
   NON_FUNCTIONAL: "Non-functional",
+};
+
+const feedbackCategoryToDto: Record<FeedbackCategory, string | null> = {
+  Unclassified: null,
+  Usability: "USABILITY",
+  "Feature Request": "FEATURE_REQUEST",
+  Bug: "BUG",
+  Complaint: "COMPLAINT",
+  Suggestion: "SUGGESTION",
+  "Non-functional": "NON_FUNCTIONAL",
 };
 
 function toUiProject(project: ProjectDto): Project {
@@ -163,6 +180,12 @@ function toUiFeedback(feedback: FeedbackDto): FeedbackItem {
           year: "numeric",
         }).format(parsedDate),
     isNoise: feedback.is_noise,
+    userSegment: feedback.user_segment ?? undefined,
+    context: feedback.context ?? undefined,
+    notes: feedback.notes ?? undefined,
+    publicFormId: feedback.public_form_id ?? undefined,
+    submittedById: feedback.submitted_by_id ?? undefined,
+    archivedAt: feedback.archived_at ?? undefined,
   };
 }
 
@@ -246,6 +269,62 @@ function toUiRequirement(
   };
 }
 
+function issueType(value: string): RequirementIssue["type"] {
+  const normalized = value.toUpperCase().replace(/[\s-]+/g, "_");
+  if (normalized.includes("MISSING")) return "Missing Information";
+  if (normalized.includes("ASSUMPTION") || normalized.includes("UNSUPPORTED")) return "Unsupported Assumption";
+  if (normalized.includes("DRIFT")) return "Intent Drift";
+  return "Inconsistency";
+}
+
+function issueSeverity(value: string): RequirementIssue["severity"] {
+  return value.toUpperCase() === "HIGH" ? "High" : value.toUpperCase() === "MEDIUM" ? "Medium" : "Low";
+}
+
+function issueStatus(value: string): RequirementIssue["status"] {
+  return value.toUpperCase() === "RESOLVED" ? "Resolved" : value.toUpperCase() === "DISMISSED" ? "Dismissed" : "Open";
+}
+
+function toUiRequirementIssue(issue: RequirementIssueDto, projectId: string): RequirementIssue {
+  return {
+    id: issue.id,
+    requirementId: issue.requirement_id,
+    projectId,
+    type: issueType(issue.issue_type),
+    severity: issueSeverity(issue.severity),
+    description: issue.description,
+    suggestion: issue.suggestion ?? issue.evidence ?? "Review the source evidence and update the requirement.",
+    status: issueStatus(issue.status),
+    origin: "requirement",
+  };
+}
+
+function toUiConsistencyFinding(finding: ConsistencyFindingDto): RequirementIssue {
+  return {
+    id: finding.id,
+    requirementId: finding.requirement_id ?? finding.need_id ?? "Project",
+    projectId: finding.project_id,
+    type: issueType(finding.finding_type),
+    severity: issueSeverity(finding.severity),
+    description: finding.description,
+    suggestion: finding.suggestion ?? finding.evidence ?? "Review this cross-project finding.",
+    status: issueStatus(finding.status),
+    origin: "consistency",
+  };
+}
+
+function analysisRunActivity(run: AnalysisRunDto): Activity {
+  const operation = run.analysis_type.toLowerCase().replace(/_/g, " ");
+  return {
+    id: run.id,
+    projectId: run.project_id,
+    text: `${operation} ${run.status.toLowerCase()}${run.model ? ` with ${run.model}` : ""}`,
+    type: run.status === "FAILED" ? "issue" : run.analysis_type === "FEEDBACK_ANALYSIS" ? "feedback" : run.analysis_type === "REQUIREMENT_GENERATION" || run.analysis_type === "REQUIREMENT_VALIDATION" ? "requirement" : "issue",
+    linkedScreen: "analysis",
+    date: new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(run.created_at)),
+  };
+}
+
 function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   // Top-level view
   const [view, setView] = useState<"projects" | "workspace">("projects");
@@ -265,8 +344,9 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   const [allRequirements, setAllRequirements] = useState<RequirementViewModel[]>([]);
   const [requirementsLoading, setRequirementsLoading] = useState(false);
   const [requirementsError, setRequirementsError] = useState<string | null>(null);
-  const [allIssues, setAllIssues] = useState<RequirementIssue[]>(INITIAL_ISSUES);
-  const [activities] = useState(INITIAL_ACTIVITIES);
+  const [allIssues, setAllIssues] = useState<RequirementIssue[]>([]);
+  const [analysisRuns, setAnalysisRuns] = useState<AnalysisRunDto[]>([]);
+  const [consistencyFindings, setConsistencyFindings] = useState<ConsistencyFindingDto[]>([]);
 
   // Global modal flags (triggered from Dashboard quick actions)
   const [showAddFeedback, setShowAddFeedback] = useState(false);
@@ -336,12 +416,25 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     try {
       const response = await listRequirements(projectId);
       setAllRequirements(response.data.map((requirement) => toUiRequirement(requirement)));
+      const issueGroups = await Promise.all(
+        response.data.map((requirement) => listRequirementIssues(projectId, requirement.id)),
+      );
+      setAllIssues(issueGroups.flat().map((issue) => toUiRequirementIssue(issue, projectId)));
     } catch (error) {
       setAllRequirements([]);
       setRequirementsError(getErrorMessage(error, "Unable to load requirements."));
     } finally {
       setRequirementsLoading(false);
     }
+  }, []);
+
+  const loadAnalysisData = useCallback(async (projectId: string) => {
+    const [runs, findings] = await Promise.all([
+      listAnalysisRuns(projectId),
+      listConsistencyFindings(projectId),
+    ]);
+    setAnalysisRuns(runs.data);
+    setConsistencyFindings(findings);
   }, []);
 
   useEffect(() => {
@@ -359,22 +452,29 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
       setAllRequirements([]);
       setRequirementsError(null);
       setRequirementsLoading(false);
+      setAllIssues([]);
+      setAnalysisRuns([]);
+      setConsistencyFindings([]);
       return;
     }
     void Promise.all([
       loadFeedback(activeProject.id),
       loadNeeds(activeProject.id),
       loadRequirements(activeProject.id),
+      loadAnalysisData(activeProject.id),
     ]);
-  }, [activeProject?.id, loadFeedback, loadNeeds, loadRequirements]);
+  }, [activeProject?.id, loadAnalysisData, loadFeedback, loadNeeds, loadRequirements]);
 
   // Derived — data for current project
   const proj = activeProject!;
   const projectFeedback = activeProject ? allFeedback.filter((f) => f.projectId === activeProject.id) : [];
   const projectNeeds = activeProject ? allNeeds.filter((n) => n.projectId === activeProject.id) : [];
   const projectRequirements = activeProject ? allRequirements.filter((r) => r.projectId === activeProject.id) : [];
-  const projectIssues = activeProject ? allIssues.filter((i) => i.projectId === activeProject.id) : [];
-  const projectActivities = activeProject ? activities.filter((a) => a.projectId === activeProject.id) : [];
+  const projectIssues = activeProject ? [
+    ...allIssues.filter((i) => i.projectId === activeProject.id),
+    ...consistencyFindings.filter((finding) => finding.project_id === activeProject.id).map(toUiConsistencyFinding),
+  ] : [];
+  const projectActivities = activeProject ? analysisRuns.filter((run) => run.project_id === activeProject.id).map(analysisRunActivity) : [];
 
   // Updaters
   const addFeedback = (item: FeedbackItem) => setAllFeedback((prev) => [item, ...prev]);
@@ -399,18 +499,27 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     return toUiFeedback(await getFeedbackRequest(activeProject.id, feedbackId));
   };
 
+  const loadSimilarFeedback = async (feedbackId: string): Promise<SimilarFeedbackDto[]> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return listSimilarFeedback(activeProject.id, feedbackId);
+  };
+
   const saveFeedback = async (
     feedbackId: string,
     content: string,
     category: FeedbackCategory,
+    isNoise: boolean,
   ): Promise<FeedbackItem> => {
     if (!activeProject) throw new Error("No active project selected.");
     const updated = toUiFeedback(
-      await updateFeedbackRequest(activeProject.id, feedbackId, { content }),
+      await updateFeedbackRequest(activeProject.id, feedbackId, {
+        content,
+        category: feedbackCategoryToDto[category],
+        is_noise: isNoise,
+      }),
     );
-    const withUiCategory = { ...updated, category };
-    setAllFeedback((prev) => prev.map((item) => (item.id === feedbackId ? withUiCategory : item)));
-    return withUiCategory;
+    setAllFeedback((prev) => prev.map((item) => (item.id === feedbackId ? updated : item)));
+    return updated;
   };
 
   const archiveFeedback = async (feedbackId: string): Promise<FeedbackItem> => {
@@ -590,8 +699,31 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     return { run, requirement, issues };
   };
 
-  const updateIssue = (id: string, changes: Partial<RequirementIssue>) =>
-    setAllIssues((prev) => prev.map((i) => (i.id === id ? { ...i, ...changes } : i)));
+  const runConsistency = async (signal?: AbortSignal): Promise<AnalysisRunDto> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const projectId = activeProject.id;
+    const accepted = await startConsistencyCheck(projectId, crypto.randomUUID());
+    const run = await pollAnalysisRun(projectId, accepted.analysis_run_id, { signal });
+    if (run.status === "FAILED") throw new Error(run.error_message || "Consistency check failed.");
+    await loadAnalysisData(projectId);
+    return run;
+  };
+
+  const transitionAnalysisIssue = async (
+    issue: RequirementIssue,
+    action: "resolve" | "dismiss",
+  ): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    if (issue.origin === "consistency") {
+      const updated = await transitionConsistencyFinding(activeProject.id, issue.id, action);
+      setConsistencyFindings((current) => current.map((item) => item.id === updated.id ? updated : item));
+      return;
+    }
+    const updated = action === "resolve"
+      ? await resolveRequirementIssue(activeProject.id, issue.requirementId, issue.id)
+      : await dismissRequirementIssue(activeProject.id, issue.requirementId, issue.id);
+    setAllIssues((current) => current.map((item) => item.id === updated.id ? toUiRequirementIssue(updated, activeProject.id) : item));
+  };
 
   const openProject = async (project: Project) => {
     const toastId = toast.loading("Loading project...");
@@ -631,6 +763,30 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     const newProj = toUiProject(created);
     setProjects((prev) => [newProj, ...prev]);
     return newProj;
+  };
+
+  const updateActiveProject = async (payload: ProjectUpdateRequest): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const updated = toUiProject(await updateProjectRequest(activeProject.id, payload));
+    setActiveProject(updated);
+    setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+  };
+
+  const archiveActiveProject = async (): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const updated = toUiProject(await archiveProjectRequest(activeProject.id));
+    setProjects((current) => current.map((project) => project.id === updated.id ? updated : project));
+    backToProjects();
+    toast.success("Project archived");
+  };
+
+  const leaveActiveProject = async (): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const projectId = activeProject.id;
+    await leaveProjectRequest(projectId);
+    setProjects((current) => current.filter((project) => project.id !== projectId));
+    backToProjects();
+    toast.success("You left the project");
   };
 
   const navigate = (screen: string) => {
@@ -699,6 +855,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onRunAnalysis={() => { setActiveScreen("feedback"); }}
               onOpenGenerateReqs={() => { setActiveScreen("requirements"); setShowGenerateReqs(true); }}
               onOpenPublicLink={() => { setActiveScreen("feedback"); setShowPublicLinkFromDash(true); }}
+              readOnly={proj.currentUserRole === "VIEWER" || proj.status === "Archived"}
             />
           )}
 
@@ -712,9 +869,9 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onRecordFeedback={recordFeedback}
               onImportFeedback={importFeedback}
               onLoadFeedbackDetail={loadFeedbackDetail}
+              onLoadSimilarFeedback={loadSimilarFeedback}
               onSaveFeedback={saveFeedback}
               onArchiveFeedback={archiveFeedback}
-              onAddFeedback={addFeedback}
               onAnalyzeFeedback={analyzeFeedback}
               onNavigate={navigate}
               showAddModal={showAddFeedback}
@@ -740,6 +897,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onAnalyzeSourceFeedback={async (feedbackIds) => {
                 await analyzeFeedback({ mode: "SELECTED", feedback_ids: feedbackIds });
               }}
+              readOnly={proj.currentUserRole === "VIEWER" || proj.status === "Archived"}
             />
           )}
 
@@ -762,6 +920,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onLoadRequirementEvidence={loadRequirementEvidence}
               onTransitionRequirementIssue={transitionRequirementIssue}
               onValidateRequirement={validateRequirement}
+              readOnly={proj.currentUserRole === "VIEWER" || proj.status === "Archived"}
               showGenerateModal={showGenerateReqs}
               onCloseGenerateModal={() => setShowGenerateReqs(false)}
             />
@@ -773,11 +932,23 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               issues={projectIssues}
               needs={projectNeeds}
               feedback={projectFeedback}
-              onUpdateIssue={updateIssue}
+              runs={analysisRuns.filter((run) => run.project_id === proj.id)}
+              onRunConsistency={runConsistency}
+              onTransitionIssue={transitionAnalysisIssue}
+              readOnly={proj.currentUserRole === "VIEWER" || proj.status === "Archived"}
             />
           )}
 
           {activeScreen === "reports" && <Reports projectId={proj.id} />}
+
+          {activeScreen === "settings" && (
+            <ProjectSettings
+              project={proj}
+              onUpdate={updateActiveProject}
+              onArchive={archiveActiveProject}
+              onLeave={leaveActiveProject}
+            />
+          )}
         </div>
       </div>
 
@@ -788,6 +959,13 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
 }
 
 export default function App() {
+  const publicToken = window.location.pathname.match(/^\/feedback\/([^/]+)\/?$/)?.[1];
+  if (publicToken) return <PublicFeedbackPage token={decodeURIComponent(publicToken)} />;
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
 

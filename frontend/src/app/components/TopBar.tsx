@@ -8,7 +8,7 @@ import type { Lang } from "../i18n/translations";
 import type { AuthUser } from "../../types/auth";
 
 type Mode = "light" | "dark";
-type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports";
+type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports" | "settings";
 
 const LANGS: { code: Lang; label: string; native: string; flag: string }[] = [
   { code: "EN", label: "English", native: "English", flag: "🇺🇸" },
@@ -71,6 +71,7 @@ export function TopBar({ project, activeScreen, onBackToProjects, user, onLogout
     requirements: tr.nav.requirements,
     analysis: tr.nav.analysis,
     reports: tr.nav.reports,
+    settings: tr.nav.settings,
   };
 
   return (
@@ -118,7 +119,7 @@ export function TopBar({ project, activeScreen, onBackToProjects, user, onLogout
           <button
             onClick={() => { setUserMenuOpen((o) => !o); setLangOpen(false); }}
             className="w-8 h-8 rounded-full flex items-center justify-center text-white ring-2 ring-offset-1 transition-all hover:ring-blue-300"
-            style={{ background: "#1E3A8A", fontSize: "11px", fontWeight: 700, ringColor: "transparent" }}
+            style={{ background: "#1E3A8A", fontSize: "11px", fontWeight: 700 }}
           >
             {userInitials(user.full_name)}
           </button>

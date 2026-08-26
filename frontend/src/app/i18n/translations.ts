@@ -206,6 +206,23 @@ export const t = {
       publicFormTitle: "User Feedback",
       publicFormIntro: "Help us improve your experience. Your feedback goes directly to our product team.",
       submit: "Submit Feedback",
+      analysisTimeout: "Analysis timed out. The job may still be running.",
+      analyzeTitle: "Analyze feedback",
+      analyzeDescription: "Select feedback records to classify and extract user needs.",
+      selectedForAnalysis: (count: number) => `${count} selected for analysis`,
+      selectAll: "Select all",
+      clearSelection: "Clear selection",
+      analyzeSelected: (count: number) => `Analyze selected (${count})`,
+      analyzingSelected: (count: number) => `Analyzing ${count} selected feedback...`,
+      batchProcessing: "The AI worker is processing this batch.",
+      analysisCompleted: "Analysis completed",
+      feedbackAnalyzed: "Feedback analyzed",
+      candidateNeeds: "Candidate needs",
+      analysisCompletedHint: "Data refreshes automatically after processing completes.",
+      viewNeeds: "View user needs",
+      analysisFailed: "Analysis failed",
+      feedbackColumn: "Feedback",
+      selectForAnalysis: "Select for analysis",
     },
     userNeeds: {
       title: "User Needs",
@@ -242,6 +259,15 @@ export const t = {
       confirmedSuccess: "User Need confirmed",
       rejectedSuccess: "User Need rejected",
       savedSuccess: "User Need saved",
+      sourceAnalysisCompleted: "Source feedback analysis completed",
+      sourceAnalysisError: "Unable to analyze source feedback.",
+      analysisTimeout: "Analysis timed out. The job may still be running.",
+      sourceFeedbackTitle: "Source feedback",
+      sourceFeedbackSubtitle: "Review or reanalyze the evidence for this need",
+      noSourceFeedback: "No supporting feedback is available.",
+      reanalyzing: "Reanalyzing...",
+      reanalyzeSelected: (count: number) => `Reanalyze selected (${count})`,
+      reviewSourceFeedback: "Review source feedback",
     },
     requirements: {
       title: "Requirements",
@@ -603,6 +629,23 @@ export const t = {
       publicFormTitle: "Phản hồi người dùng",
       publicFormIntro: "Hãy giúp chúng tôi cải thiện trải nghiệm của bạn. Phản hồi được gửi trực tiếp tới nhóm sản phẩm.",
       submit: "Gửi phản hồi",
+      analysisTimeout: "Phân tích quá thời gian. Tác vụ có thể vẫn đang chạy.",
+      analyzeTitle: "Phân tích phản hồi",
+      analyzeDescription: "Chọn phản hồi để phân loại và trích xuất nhu cầu.",
+      selectedForAnalysis: (count: number) => `Đã chọn ${count} mục để phân tích`,
+      selectAll: "Chọn tất cả",
+      clearSelection: "Bỏ chọn",
+      analyzeSelected: (count: number) => `Phân tích mục đã chọn (${count})`,
+      analyzingSelected: (count: number) => `Đang phân tích ${count} phản hồi đã chọn...`,
+      batchProcessing: "AI đang xử lý lô dữ liệu này.",
+      analysisCompleted: "Phân tích hoàn tất",
+      feedbackAnalyzed: "Phản hồi đã phân tích",
+      candidateNeeds: "Nhu cầu ứng viên",
+      analysisCompletedHint: "Dữ liệu được làm mới tự động sau khi hoàn tất.",
+      viewNeeds: "Xem nhu cầu người dùng",
+      analysisFailed: "Phân tích thất bại",
+      feedbackColumn: "Phản hồi",
+      selectForAnalysis: "Chọn để phân tích",
     },
     userNeeds: {
       title: "Nhu cầu người dùng",
@@ -639,6 +682,15 @@ export const t = {
       confirmedSuccess: "Đã xác nhận nhu cầu người dùng",
       rejectedSuccess: "Đã từ chối nhu cầu người dùng",
       savedSuccess: "Đã lưu nhu cầu người dùng",
+      sourceAnalysisCompleted: "Đã phân tích phản hồi nguồn",
+      sourceAnalysisError: "Không thể phân tích phản hồi nguồn.",
+      analysisTimeout: "Phân tích quá thời gian. Tác vụ có thể vẫn đang chạy.",
+      sourceFeedbackTitle: "Phản hồi nguồn",
+      sourceFeedbackSubtitle: "Xem hoặc phân tích lại bằng chứng của nhu cầu này",
+      noSourceFeedback: "Không có phản hồi hỗ trợ.",
+      reanalyzing: "Đang phân tích lại...",
+      reanalyzeSelected: (count: number) => `Phân tích lại mục đã chọn (${count})`,
+      reviewSourceFeedback: "Xem phản hồi nguồn",
     },
     requirements: {
       title: "Yêu cầu",
@@ -796,4 +848,10 @@ export const t = {
   },
 } as const;
 
-export type Translations = typeof t.EN;
+type Widen<T> = T extends string
+  ? string
+  : T extends (...args: infer Args) => infer Result
+    ? (...args: Args) => Result
+    : { [Key in keyof T]: Widen<T[Key]> };
+
+export type Translations = Widen<typeof t.EN>;

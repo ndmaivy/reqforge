@@ -40,6 +40,33 @@ export interface AnalysisRunDto {
   output_json: FeedbackAnalysisOutput | null;
   status: AnalysisStatus;
   error_message: string | null;
+  error_code: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  created_by_id: string | null;
+  subject_requirement_id: string | null;
   created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  heartbeat_at: string | null;
+  next_attempt_at: string | null;
   completed_at: string | null;
+}
+
+export interface ConsistencyFindingDto {
+  id: string;
+  project_id: string;
+  analysis_run_id: string;
+  need_id: string | null;
+  requirement_id: string | null;
+  finding_type: string;
+  severity: string;
+  description: string;
+  evidence: string | null;
+  suggestion: string | null;
+  confidence: number | string | null;
+  status: "OPEN" | "RESOLVED" | "DISMISSED";
+  resolved_by_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
