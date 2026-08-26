@@ -19,16 +19,35 @@ class AnalysisRunRepository:
         analysis_type: AnalysisType,
         model: str | None,
         input_snapshot: dict[str, object],
+        idempotency_key: str,
+        created_by_id: UUID,
+        subject_requirement_id: UUID | None = None,
+        max_attempts: int = 3,
     ) -> AnalysisRun:
         run = AnalysisRun(
             project_id=project_id,
             analysis_type=analysis_type,
             model=model,
             input_snapshot=input_snapshot,
+            idempotency_key=idempotency_key,
+            created_by_id=created_by_id,
+            subject_requirement_id=subject_requirement_id,
+            max_attempts=max_attempts,
             status=AnalysisStatus.PENDING,
         )
         self.session.add(run)
         return run
+
+    def get_by_idempotency(
+        self, project_id: UUID, created_by_id: UUID, idempotency_key: str
+    ) -> AnalysisRun | None:
+        return self.session.scalar(
+            select(AnalysisRun).where(
+                AnalysisRun.project_id == project_id,
+                AnalysisRun.created_by_id == created_by_id,
+                AnalysisRun.idempotency_key == idempotency_key,
+            )
+        )
 
     def get(self, run_id: UUID) -> AnalysisRun | None:
         return self.session.get(AnalysisRun, run_id)
@@ -47,9 +66,7 @@ class AnalysisRunRepository:
         if status is not None:
             filters.append(AnalysisRun.status == status)
         statement = select(AnalysisRun).where(*filters).order_by(AnalysisRun.created_at.desc())
-        runs = list(
-            self.session.scalars(statement.offset((page - 1) * page_size).limit(page_size))
-        )
+        runs = list(self.session.scalars(statement.offset((page - 1) * page_size).limit(page_size)))
         total = (
             self.session.scalar(select(func.count()).select_from(AnalysisRun).where(*filters)) or 0
         )

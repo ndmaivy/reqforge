@@ -21,6 +21,7 @@ class RequirementBaseline(CreatedAtMixin, Base):
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSON(), nullable=False)
+    created_by_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
 
     project: Mapped[Project] = relationship(back_populates="baselines")
 

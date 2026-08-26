@@ -4,13 +4,15 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.enums import (
+    ConsistencyFindingType,
     GeneratedByType,
     IssueSeverity,
     IssueStatus,
     RequirementIssueType,
+    RequirementSourceType,
     RequirementStatus,
     RequirementType,
 )
@@ -19,6 +21,11 @@ from app.db.models.enums import (
 class ReportProjectSummary(BaseModel):
     id: UUID
     name: str
+    product_name: str | None = None
+    goal: str | None = None
+    target_users: list[str] = Field(default_factory=list)
+    platform: str | None = None
+    main_features: list[str] = Field(default_factory=list)
     generated_at: datetime
     feedback_coverage_start: datetime | None
     feedback_coverage_end: datetime | None
@@ -76,6 +83,11 @@ class ApprovedRequirement(BaseModel):
     type: RequirementType
     status: RequirementStatus
     generated_by: GeneratedByType
+    source_type: RequirementSourceType = RequirementSourceType.MANUAL
+    source_reference: str | None = None
+    review_note: str | None = None
+    acknowledged_outdated_validation: bool = False
+    acknowledged_open_high_issues: bool = False
     confidence: Decimal | None
     source_needs: list[SupportingNeed]
     supporting_feedback_ids: list[UUID]
@@ -106,6 +118,19 @@ class OutstandingIssue(BaseModel):
     created_at: datetime
 
 
+class OutstandingConsistencyFinding(BaseModel):
+    id: UUID
+    finding_type: ConsistencyFindingType
+    severity: IssueSeverity
+    status: IssueStatus
+    need_id: UUID | None
+    requirement_id: UUID | None
+    description: str
+    suggestion: str | None
+    confidence: Decimal | None
+    created_at: datetime
+
+
 class ProjectReport(BaseModel):
     project: ReportProjectSummary
     feedback: FeedbackSummary
@@ -116,6 +141,7 @@ class ProjectReport(BaseModel):
     approved_requirement_set: list[ApprovedRequirement]
     traceability_matrix: list[TraceabilityRow]
     outstanding_issues: list[OutstandingIssue]
+    consistency_findings: list[OutstandingConsistencyFinding] = Field(default_factory=list)
 
 
 class BaselineSummary(BaseModel):
@@ -125,6 +151,7 @@ class BaselineSummary(BaseModel):
     project_id: UUID
     version: int
     created_at: datetime
+    created_by_id: UUID | None = None
 
 
 class BaselineResponse(BaselineSummary):

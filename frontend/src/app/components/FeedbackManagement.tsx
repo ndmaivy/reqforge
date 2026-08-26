@@ -378,35 +378,52 @@ function PublicLinkPanel({ project, onClose, onOpenForm }: PublicLinkPanelProps)
 // ─── Analyze Modal ────────────────────────────────────────────────────────────
 
 interface AnalyzeModalProps {
-  newCount: number;
+  feedback: FeedbackItem[];
+  selectedIds: Set<string>;
+  onSelectedIdsChange: (ids: Set<string>) => void;
   onClose: () => void;
   onRun: (payload: FeedbackAnalysisRequest, signal: AbortSignal) => Promise<AnalysisRunDto>;
   onViewNeeds?: () => void;
 }
 
-function AnalyzeModal({ newCount, onClose, onRun, onViewNeeds }: AnalyzeModalProps) {
+function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onRun, onViewNeeds }: AnalyzeModalProps) {
+  const { tr } = useLanguage();
   const [step, setStep] = useState<"config" | "loading" | "done" | "error">("config");
-  const [result, setResult] = useState({ analyzed: 0, groups: 0, needs: 0 });
+  const [result, setResult] = useState({ analyzed: 0, needs: 0 });
   const [runError, setRunError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const available = feedback.filter((item) => item.status !== "Archived");
+  const selected = available.filter((item) => selectedIds.has(item.id));
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
+  const toggle = (feedbackId: string) => {
+    const next = new Set(selectedIds);
+    next.has(feedbackId) ? next.delete(feedbackId) : next.add(feedbackId);
+    onSelectedIdsChange(next);
+  };
+
   const run = async () => {
+    if (!selected.length) return;
     setStep("loading");
     setRunError(null);
     const controller = new AbortController();
     controllerRef.current = controller;
     try {
-      const analysisRun = await onRun({ mode: "NEW_ONLY" }, controller.signal);
+      const analysisRun = await onRun(
+        { mode: "SELECTED", feedback_ids: selected.map((item) => item.id) },
+        controller.signal,
+      );
       const output = analysisRun.output_json;
-      const analyzed = output?.feedback_results?.length ?? newCount;
+      const analyzed = output?.feedback_results?.length ?? selected.length;
       const needs = output?.candidate_needs?.length ?? 0;
-      setResult({ analyzed, groups: 0, needs });
+      setResult({ analyzed, needs });
+      onSelectedIdsChange(new Set());
       setStep("done");
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      setRunError(getErrorMessage(error, "Feedback analysis failed."));
+      const message = getErrorMessage(error, tr.feedback.analysisError);
+      setRunError(message.toLowerCase().includes("timeout") ? tr.feedback.analysisTimeout : message);
       setStep("error");
     } finally {
       controllerRef.current = null;
@@ -416,28 +433,34 @@ function AnalyzeModal({ newCount, onClose, onRun, onViewNeeds }: AnalyzeModalPro
   const finish = () => { onViewNeeds ? onViewNeeds() : onClose(); };
 
   return (
-    <Modal title="Analyze Feedback" onClose={step === "loading" ? undefined : onClose} width="420px">
+    <Modal title={tr.feedback.analyzeTitle} onClose={step === "loading" ? undefined : onClose} width="620px">
       {step === "config" && (
         <>
           <div className="px-5 py-5 space-y-4">
             <p style={{ fontSize: "13px", color: "#64748B", lineHeight: 1.6 }}>
-              AI will classify feedback, detect noise, group similar records and suggest Candidate User Needs.
+              {tr.feedback.analyzeDescription}
             </p>
-            <div className="flex items-start gap-3 p-3 rounded-xl border" style={{ borderColor: "#1E3A8A", background: "#EFF6FF" }}>
-              <input type="radio" checked readOnly className="mt-0.5" />
-              <div>
-                <p style={{ fontSize: "13px", fontWeight: 500, color: "#0F172A" }}>Analyze all new feedback ({newCount})</p>
-                <p style={{ fontSize: "11.5px", color: "#64748B", marginTop: "2px" }}>Process all feedback records with status New</p>
+            <div className="flex items-center justify-between gap-3">
+              <span style={{ fontSize: "12px", color: "#475569" }}>{tr.feedback.selectedForAnalysis(selected.length)}</span>
+              <div className="flex gap-2">
+                <button onClick={() => onSelectedIdsChange(new Set(available.map((item) => item.id)))} style={{ fontSize: "12px", color: "#1E3A8A" }}>{tr.feedback.selectAll}</button>
+                <button onClick={() => onSelectedIdsChange(new Set())} style={{ fontSize: "12px", color: "#64748B" }}>{tr.feedback.clearSelection}</button>
               </div>
+            </div>
+            <div className="max-h-72 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>
+              {available.map((item) => <label key={item.id} className="flex cursor-pointer items-start gap-3 border-b px-3 py-3 last:border-b-0" style={{ borderColor: "#F1F5F9", background: selectedIds.has(item.id) ? "#EFF6FF" : "#fff" }}>
+                <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggle(item.id)} className="mt-1" />
+                <span className="min-w-0 flex-1"><span className="block line-clamp-2" style={{ fontSize: "12.5px", color: "#0F172A" }}>{item.text}</span><span className="mt-1 block" style={{ fontSize: "11px", color: "#64748B" }}>{item.source} · {item.date} · {tr.status[item.status]}</span></span>
+              </label>)}
             </div>
           </div>
           <div className="flex gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
             <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50"
-              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Cancel</button>
-            <button onClick={run} disabled={newCount === 0}
+              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>{tr.common.cancel}</button>
+            <button onClick={() => void run()} disabled={!selected.length}
               className="flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-white hover:opacity-90 disabled:opacity-50"
               style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>
-              <Sparkles size={13} /> Start Analysis
+              <Sparkles size={13} /> {tr.feedback.analyzeSelected(selected.length)}
             </button>
           </div>
         </>
@@ -447,16 +470,9 @@ function AnalyzeModal({ newCount, onClose, onRun, onViewNeeds }: AnalyzeModalPro
         <div className="flex flex-col items-center py-12 px-6">
           <Loader size={32} className="animate-spin mb-4" style={{ color: "#1E3A8A" }} />
           <p style={{ fontSize: "14px", fontWeight: 600, color: "var(--foreground)", marginBottom: "4px" }}>
-            Analyzing {newCount} feedback record{newCount !== 1 ? "s" : ""}...
+            {tr.feedback.analyzingSelected(selected.length)}
           </p>
-          <div className="space-y-1.5 mt-4 w-full">
-            {["Classifying feedback", "Detecting noise", "Grouping similar records", "Extracting Candidate User Needs"].map((label, i) => (
-              <div key={label} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0" style={{ animationDelay: `${i * 0.2}s` }} />
-                <span style={{ fontSize: "12px", color: "#64748B" }}>{label}</span>
-              </div>
-            ))}
-          </div>
+          <p style={{ fontSize: "12px", color: "#64748B" }}>{tr.feedback.batchProcessing}</p>
         </div>
       )}
 
@@ -465,13 +481,12 @@ function AnalyzeModal({ newCount, onClose, onRun, onViewNeeds }: AnalyzeModalPro
           <div className="px-5 py-6 space-y-4">
             <div className="flex items-center gap-3">
               <CheckCircle size={24} style={{ color: "#059669" }} />
-              <p style={{ fontSize: "15px", fontWeight: 600, color: "#059669" }}>Analysis completed</p>
+              <p style={{ fontSize: "15px", fontWeight: 600, color: "#059669" }}>{tr.feedback.analysisCompleted}</p>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {[
-                { label: "Feedback analyzed", value: result.analyzed },
-                { label: "Related groups found", value: result.groups },
-                { label: "Candidate User Needs", value: result.needs },
+                { label: tr.feedback.feedbackAnalyzed, value: result.analyzed },
+                { label: tr.feedback.candidateNeeds, value: result.needs },
               ].map((s) => (
                 <div key={s.label} className="rounded-xl border p-3 text-center" style={{ background: "#F8FAFC", borderColor: "var(--border)" }}>
                   <p style={{ fontSize: "22px", fontWeight: 700, color: "#1E3A8A", letterSpacing: "-0.04em" }}>{s.value}</p>
@@ -480,14 +495,14 @@ function AnalyzeModal({ newCount, onClose, onRun, onViewNeeds }: AnalyzeModalPro
               ))}
             </div>
             <p style={{ fontSize: "12px", color: "#64748B" }}>
-              Feedback status updated to <strong>Analyzed</strong>. Check User Needs to review results.
+              {tr.feedback.analysisCompletedHint}
             </p>
           </div>
           <div className="flex gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
             <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50"
-              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Close</button>
+              style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>{tr.common.close}</button>
             <button onClick={finish} className="flex-1 py-2 rounded-md text-white hover:opacity-90"
-              style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>View User Needs →</button>
+              style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>{tr.feedback.viewNeeds}</button>
           </div>
         </>
       )}
@@ -497,13 +512,13 @@ function AnalyzeModal({ newCount, onClose, onRun, onViewNeeds }: AnalyzeModalPro
           <div className="px-5 py-8">
             <div className="flex items-center gap-3 mb-3">
               <X size={22} style={{ color: "#DC2626" }} />
-              <p style={{ fontSize: "15px", fontWeight: 600, color: "#DC2626" }}>Analysis failed</p>
+              <p style={{ fontSize: "15px", fontWeight: 600, color: "#DC2626" }}>{tr.feedback.analysisFailed}</p>
             </div>
             <p style={{ fontSize: "12.5px", color: "#64748B", lineHeight: 1.6 }}>{runError}</p>
           </div>
           <div className="flex gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
-            <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50" style={{ borderColor: "var(--border)", fontSize: "13px" }}>Close</button>
-            <button onClick={() => void run()} className="flex-1 py-2 rounded-md text-white hover:opacity-90" style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>Retry</button>
+            <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50" style={{ borderColor: "var(--border)", fontSize: "13px" }}>{tr.common.close}</button>
+            <button onClick={() => void run()} className="flex-1 py-2 rounded-md text-white hover:opacity-90" style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>{tr.common.retry}</button>
           </div>
         </>
       )}
@@ -557,6 +572,7 @@ export function FeedbackManagement({
   const [showAnalyze, setShowAnalyze] = useState(false);
   const [showPublicLink, setShowPublicLink] = useState(false);
   const [showPublicForm, setShowPublicForm] = useState(false);
+  const [analysisSelection, setAnalysisSelection] = useState<Set<string>>(new Set());
 
   const [importStep, setImportStep] = useState<"idle" | "uploading" | "done">("idle");
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -674,6 +690,23 @@ export function FeedbackManagement({
     }
   };
 
+  const openAnalyzeModal = () => {
+    if (!analysisSelection.size) {
+      setAnalysisSelection(
+        new Set(feedback.filter((item) => item.status === "New").map((item) => item.id)),
+      );
+    }
+    setShowAnalyze(true);
+  };
+
+  const toggleAnalysisSelection = (feedbackId: string) => {
+    setAnalysisSelection((current) => {
+      const next = new Set(current);
+      next.has(feedbackId) ? next.delete(feedbackId) : next.add(feedbackId);
+      return next;
+    });
+  };
+
   const selectImportFile = (file: File | null) => {
     if (!file) return;
     if (!/\.(csv|xlsx)$/i.test(file.name)) {
@@ -745,11 +778,11 @@ export function FeedbackManagement({
                 style={{ borderColor: "var(--border)", fontSize: "13px", fontWeight: 500, color: "var(--foreground)" }}>
                 <Upload size={13} style={{ color: "#64748B" }} /> Import
               </button>
-              <button onClick={() => setShowAnalyze(true)} disabled={newCount === 0}
+              <button onClick={openAnalyzeModal}
                 className="flex items-center gap-2 px-3.5 py-2 rounded-lg border hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
-                style={{ borderColor: newCount > 0 ? "#1E3A8A" : "var(--border)", fontSize: "13px", fontWeight: 500, color: newCount > 0 ? "#1E3A8A" : "var(--foreground)" }}>
+                style={{ borderColor: "#1E3A8A", fontSize: "13px", fontWeight: 500, color: "#1E3A8A" }}>
                 <Sparkles size={13} style={{ color: "#1E3A8A" }} />
-                {newCount > 0 ? `Analyze ${newCount} New Feedback` : "Analyze Feedback"}
+                {analysisSelection.size ? tr.feedback.analyzeSelected(analysisSelection.size) : tr.feedback.analyze}
               </button>
               <button onClick={() => setLocalShowRecord(true)}
                 className="flex items-center gap-2 px-3.5 py-2 rounded-2xl text-white hover:opacity-90 transition-all whitespace-nowrap"
@@ -794,6 +827,13 @@ export function FeedbackManagement({
             <span style={{ fontSize: "11.5px", color: "#94A3B8", marginLeft: "auto" }}>{filtered.length} records</span>
           </div>
 
+          {analysisSelection.size > 0 && (
+            <div className="mb-4 flex items-center justify-between rounded-lg border px-3 py-2" style={{ background: "#EFF6FF", borderColor: "#BFDBFE" }}>
+              <span style={{ color: "#1E3A8A", fontSize: "12.5px", fontWeight: 500 }}>{tr.feedback.selectedForAnalysis(analysisSelection.size)}</span>
+              <button onClick={openAnalyzeModal} className="rounded-md px-3 py-1.5 text-white" style={{ background: "#1E3A8A", fontSize: "12px", fontWeight: 600 }}>{tr.feedback.analyzeSelected(analysisSelection.size)}</button>
+            </div>
+          )}
+
           {/* Feedback List */}
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16 rounded-xl border"
@@ -821,7 +861,7 @@ export function FeedbackManagement({
               <table className="w-full">
                 <thead>
                   <tr style={{ background: "#F8FAFC", borderBottom: "1px solid var(--border)" }}>
-                    {["ID", "Feedback", "Source", "Date", "Status", ""].map((col) => (
+                    {["ID", tr.feedback.feedbackColumn, tr.common.source, tr.common.date, tr.common.status, tr.feedback.analyze, ""].map((col) => (
                       <th key={col} className="px-4 py-3 text-left" style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", letterSpacing: "0.04em", textTransform: "uppercase" }}>{col}</th>
                     ))}
                   </tr>
@@ -860,8 +900,21 @@ export function FeedbackManagement({
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: statusDot[fb.status] }} />
-                            <span style={{ fontSize: "12px", fontWeight: 500, color: statusDot[fb.status] }}>{fb.status}</span>
+                            <span style={{ fontSize: "12px", fontWeight: 500, color: statusDot[fb.status] }}>{tr.status[fb.status]}</span>
                           </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            role="switch"
+                            aria-checked={analysisSelection.has(fb.id)}
+                            disabled={fb.status === "Archived"}
+                            onClick={(event) => { event.stopPropagation(); toggleAnalysisSelection(fb.id); }}
+                            className="relative h-5 w-9 rounded-full transition-colors disabled:opacity-40"
+                            style={{ background: analysisSelection.has(fb.id) ? "#1E3A8A" : "#CBD5E1" }}
+                            title={tr.feedback.selectForAnalysis}
+                          >
+                            <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all" style={{ left: analysisSelection.has(fb.id) ? "18px" : "2px" }} />
+                          </button>
                         </td>
                         <td className="px-4 py-3">
                           <button onClick={(e) => { e.stopPropagation(); setArchiveTarget(fb); }}>
@@ -1059,7 +1112,9 @@ export function FeedbackManagement({
       {/* Analyze Modal */}
       {showAnalyze && (
         <AnalyzeModal
-          newCount={newCount}
+          feedback={feedback}
+          selectedIds={analysisSelection}
+          onSelectedIdsChange={setAnalysisSelection}
           onClose={() => setShowAnalyze(false)}
           onRun={onAnalyzeFeedback}
           onViewNeeds={() => { setShowAnalyze(false); onNavigate?.("user-needs"); }}

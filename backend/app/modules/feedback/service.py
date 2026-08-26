@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
 from openpyxl import load_workbook
 from pydantic import ValidationError
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import FeedbackNotFound, ImportFileError, InvalidStateTransition
-from app.db.models import Feedback
-from app.db.models.enums import FeedbackStatus
+from app.db.models import Feedback, FeedbackSimilarityLink
+from app.db.models.enums import FeedbackStatus, ProjectRole
 from app.modules.feedback.normalizer import normalize_feedback_content
 from app.modules.feedback.repository import FeedbackRepository
 from app.modules.feedback.schemas import FeedbackCreate, FeedbackUpdate
@@ -25,23 +26,28 @@ class FeedbackService:
         self.repository = FeedbackRepository(session)
         self.projects = ProjectService(session)
 
-    def create(
-        self, project_id: UUID, payload: FeedbackCreate, owner_id: UUID | None = None
-    ) -> Feedback:
-        self.projects.get(project_id, owner_id)
+    def create(self, project_id: UUID, payload: FeedbackCreate, user_id: UUID) -> Feedback:
+        self.projects.get(project_id, user_id, ProjectRole.EDITOR)
         values = payload.model_dump()
         values["content"] = normalize_feedback_content(values["content"])
-        feedback = self.repository.create(Feedback(project_id=project_id, **values))
+        feedback = self.repository.create(
+            Feedback(project_id=project_id, submitted_by_id=user_id, **values)
+        )
         self.session.commit()
         self.session.refresh(feedback)
         return feedback
 
-    def get(self, feedback_id: UUID, owner_id: UUID | None = None) -> Feedback:
+    def get(
+        self,
+        project_id: UUID,
+        feedback_id: UUID,
+        user_id: UUID,
+        minimum_role: ProjectRole = ProjectRole.VIEWER,
+    ) -> Feedback:
         feedback = self.repository.get(feedback_id)
-        if feedback is None:
+        if feedback is None or feedback.project_id != project_id:
             raise FeedbackNotFound("Feedback not found")
-        if owner_id is not None:
-            self.projects.get(feedback.project_id, owner_id)
+        self.projects.get(project_id, user_id, minimum_role)
         return feedback
 
     def list(
@@ -52,20 +58,32 @@ class FeedbackService:
         status: FeedbackStatus | None = None,
         source: str | None = None,
         category: str | None = None,
+        user_segment: str | None = None,
+        is_noise: bool | None = None,
         search: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
-        owner_id: UUID | None = None,
+        user_id: UUID | None = None,
     ) -> tuple[list[Feedback], int]:
-        self.projects.get(project_id, owner_id)
+        self.projects.get(project_id, user_id)
         return self.repository.list(
-            project_id, page, page_size, status, source, category, search, date_from, date_to
+            project_id,
+            page,
+            page_size,
+            status,
+            source,
+            category,
+            user_segment,
+            is_noise,
+            search,
+            date_from,
+            date_to,
         )
 
     def update(
-        self, feedback_id: UUID, payload: FeedbackUpdate, owner_id: UUID | None = None
+        self, project_id: UUID, feedback_id: UUID, payload: FeedbackUpdate, user_id: UUID
     ) -> Feedback:
-        feedback = self.get(feedback_id, owner_id)
+        feedback = self.get(project_id, feedback_id, user_id, ProjectRole.EDITOR)
         if feedback.status is FeedbackStatus.ARCHIVED:
             raise InvalidStateTransition("Archived feedback cannot be edited")
         for field, value in payload.model_dump(exclude_unset=True).items():
@@ -81,9 +99,9 @@ class FeedbackService:
         project_id: UUID,
         filename: str | None,
         content: bytes,
-        owner_id: UUID | None = None,
+        user_id: UUID,
     ) -> list[Feedback]:
-        self.projects.get(project_id, owner_id)
+        self.projects.get(project_id, user_id, ProjectRole.EDITOR)
         suffix = Path(filename or "").suffix.lower()
         if suffix == ".csv":
             rows = self._read_csv(content)
@@ -104,13 +122,14 @@ class FeedbackService:
                         "content": row.get("content"),
                         "source": row.get("source") or None,
                         "feedback_date": row.get("feedback_date") or None,
+                        "user_segment": row.get("user_segment") or None,
+                        "context": row.get("context") or None,
+                        "notes": row.get("notes") or None,
                     }
                 )
                 values = payload.model_dump()
                 values["content"] = normalize_feedback_content(values["content"])
-                created.append(
-                    self.repository.create(Feedback(project_id=project_id, **values))
-                )
+                created.append(self.repository.create(Feedback(project_id=project_id, **values)))
             except ValidationError as exc:
                 errors.append({"row": row_number, "errors": exc.errors()})
         if errors:
@@ -155,11 +174,39 @@ class FeedbackService:
         except Exception as exc:
             raise ImportFileError("The XLSX file could not be read") from exc
 
-    def archive(self, feedback_id: UUID, owner_id: UUID | None = None) -> Feedback:
-        feedback = self.get(feedback_id, owner_id)
+    def archive(self, project_id: UUID, feedback_id: UUID, user_id: UUID) -> Feedback:
+        feedback = self.get(project_id, feedback_id, user_id, ProjectRole.EDITOR)
         if feedback.status is FeedbackStatus.ARCHIVED:
             raise InvalidStateTransition("Feedback is already archived")
         feedback.status = FeedbackStatus.ARCHIVED
+        feedback.archived_at = datetime.now(UTC)
+        feedback.archived_by_id = user_id
         self.session.commit()
         self.session.refresh(feedback)
         return feedback
+
+    def similar(
+        self, project_id: UUID, feedback_id: UUID, user_id: UUID
+    ) -> list[tuple[Feedback, FeedbackSimilarityLink]]:
+        self.get(project_id, feedback_id, user_id)
+        links = list(
+            self.session.scalars(
+                select(FeedbackSimilarityLink).where(
+                    or_(
+                        FeedbackSimilarityLink.feedback_low_id == feedback_id,
+                        FeedbackSimilarityLink.feedback_high_id == feedback_id,
+                    )
+                )
+            )
+        )
+        result = []
+        for link in links:
+            other_id = (
+                link.feedback_high_id
+                if link.feedback_low_id == feedback_id
+                else link.feedback_low_id
+            )
+            other = self.repository.get(other_id)
+            if other is not None and other.project_id == project_id:
+                result.append((other, link))
+        return sorted(result, key=lambda item: item[1].score, reverse=True)

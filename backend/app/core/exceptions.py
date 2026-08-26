@@ -61,8 +61,40 @@ class AuthenticationError(DomainError):
     status_code = 401
 
 
+class AuthorizationError(DomainError):
+    code = "INSUFFICIENT_PROJECT_ROLE"
+    status_code = 403
+
+
+class MemberNotFound(NotFoundError):
+    code = "PROJECT_MEMBER_NOT_FOUND"
+
+
+class PublicFeedbackFormNotFound(NotFoundError):
+    code = "PUBLIC_FEEDBACK_FORM_NOT_FOUND"
+
+
+class IdempotencyConflict(DomainError):
+    code = "IDEMPOTENCY_KEY_REUSED"
+    status_code = 409
+
+
+class RateLimitExceeded(DomainError):
+    code = "RATE_LIMIT_EXCEEDED"
+    status_code = 429
+
+
+class ConsistencyFindingNotFound(NotFoundError):
+    code = "CONSISTENCY_FINDING_NOT_FOUND"
+
+
 class EmptyAnalysisInput(DomainError):
     code = "EMPTY_ANALYSIS_INPUT"
+    status_code = 422
+
+
+class InvalidDateRange(DomainError):
+    code = "INVALID_DATE_RANGE"
     status_code = 422
 
 

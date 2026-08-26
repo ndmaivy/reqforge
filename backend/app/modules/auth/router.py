@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse
+from app.core.rate_limit import client_ip
 from app.db.models import User
 from app.modules.auth.schemas import AuthResponse, LoginRequest, RegisterRequest, UserResponse
 from app.modules.auth.service import AuthService
@@ -23,6 +24,11 @@ def register(
     request: Request,
     session: Session = Depends(get_session),
 ) -> DataResponse[AuthResponse]:
+    request.app.state.rate_limiter.check(
+        f"register:{client_ip(request)}",
+        request.app.state.settings.rate_limit_register_per_hour,
+        3600,
+    )
     data = AuthService(session, request.app.state.settings).register(payload)
     return DataResponse(data=data)
 
@@ -37,6 +43,11 @@ def login(
     request: Request,
     session: Session = Depends(get_session),
 ) -> DataResponse[AuthResponse]:
+    request.app.state.rate_limiter.check(
+        f"login:{client_ip(request)}:{payload.email}",
+        request.app.state.settings.rate_limit_login_per_minute,
+        60,
+    )
     data = AuthService(session, request.app.state.settings).login(payload)
     return DataResponse(data=data)
 

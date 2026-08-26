@@ -1,80 +1,82 @@
-Enum feedback_status {
-  NEW
-  ANALYZED
-  ARCHIVED
+Enum project_status { ACTIVE ARCHIVED }
+Enum project_role { OWNER EDITOR VIEWER }
+Enum feedback_status { NEW ANALYZED ARCHIVED }
+Enum user_need_status { CANDIDATE CONFIRMED REJECTED }
+Enum requirement_status { DRAFT NEEDS_REVIEW APPROVED REJECTED ARCHIVED }
+Enum generated_by_type { AI HUMAN }
+Enum requirement_source_type {
+  AI_FROM_USER_NEED MANUAL STAKEHOLDER POLICY COMPLIANCE
+  EXISTING_SPECIFICATION TECHNICAL_CONSTRAINT OTHER
 }
-
-Enum user_need_status {
-  CANDIDATE
-  CONFIRMED
-  REJECTED
-}
-
-Enum requirement_status {
-  DRAFT
-  NEEDS_REVIEW
-  APPROVED
-  REJECTED
-  ARCHIVED
-}
-
-Enum generated_by_type {
-  AI
-  HUMAN
-}
-
 Enum requirement_type {
-  FUNCTIONAL
-  USABILITY
-  INTERACTION
-  ACCESSIBILITY
-  NON_FUNCTIONAL
+  FUNCTIONAL USABILITY INTERACTION ACCESSIBILITY NON_FUNCTIONAL
 }
-
 Enum requirement_issue_type {
-  MISSING_INFORMATION
-  AMBIGUITY
-  CONFLICT
-  DUPLICATE
-  UNSUPPORTED_ASSUMPTION
-  INTENT_DRIFT
-  FEEDBACK_INCONSISTENCY
+  MISSING_INFORMATION AMBIGUITY CONFLICT DUPLICATE UNSUPPORTED_ASSUMPTION
+  INTENT_DRIFT FEEDBACK_INCONSISTENCY
 }
-
-Enum issue_severity {
-  LOW
-  MEDIUM
-  HIGH
-}
-
-Enum issue_status {
-  OPEN
-  RESOLVED
-  DISMISSED
-}
-
+Enum issue_severity { LOW MEDIUM HIGH }
+Enum issue_status { OPEN RESOLVED DISMISSED }
 Enum analysis_type {
-  FEEDBACK_ANALYSIS
-  NEED_EXTRACTION
-  REQUIREMENT_GENERATION
-  REQUIREMENT_VALIDATION
-  CONSISTENCY_CHECK
+  FEEDBACK_ANALYSIS NEED_EXTRACTION REQUIREMENT_GENERATION
+  REQUIREMENT_VALIDATION CONSISTENCY_CHECK
 }
+Enum analysis_status { PENDING RUNNING COMPLETED FAILED }
+Enum consistency_finding_type {
+  UNCOVERED_NEED REQUIREMENT_WITHOUT_EVIDENCE CONFLICT DUPLICATE
+  INTENT_MISMATCH FEEDBACK_INCONSISTENCY
+}
+Enum consistency_finding_severity { LOW MEDIUM HIGH }
+Enum consistency_finding_status { OPEN RESOLVED DISMISSED }
 
-Enum analysis_status {
-  PENDING
-  RUNNING
-  COMPLETED
-  FAILED
+Table users {
+  id uuid [pk]
+  email varchar(320) [not null, unique]
+  password_hash varchar(255) [not null]
+  full_name varchar(255) [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
 }
 
 Table projects {
   id uuid [pk]
   name varchar(255) [not null]
+  product_name varchar(255)
   description text
   goal text
-  target_users text
+  target_users jsonb [not null]
   platform varchar(100)
+  main_features jsonb [not null]
+  additional_context text
+  status project_status [not null, default: 'ACTIVE']
+  archived_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table project_members {
+  project_id uuid [not null, ref: > projects.id]
+  user_id uuid [not null, ref: > users.id]
+  role project_role [not null]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+
+  indexes {
+    (project_id, user_id) [pk]
+    user_id
+    (project_id, role)
+  }
+}
+
+Table public_feedback_forms {
+  id uuid [pk]
+  project_id uuid [not null, unique, ref: > projects.id]
+  title varchar(255) [not null]
+  description text
+  token_hash varchar(64) [not null, unique]
+  is_active boolean [not null, default: true]
+  expires_at timestamp
+  created_by_id uuid [not null, ref: > users.id]
   created_at timestamp [not null]
   updated_at timestamp [not null]
 }
@@ -84,10 +86,18 @@ Table feedback {
   project_id uuid [not null, ref: > projects.id]
   content text [not null]
   source varchar(255)
+  user_segment varchar(255)
+  context text
+  notes text
   feedback_date timestamp
   category varchar(100)
   is_noise boolean [not null, default: false]
   status feedback_status [not null, default: 'NEW']
+  public_form_id uuid [ref: > public_feedback_forms.id]
+  submitted_by_id uuid [ref: > users.id]
+  public_submission_key varchar(255)
+  archived_at timestamp
+  archived_by_id uuid [ref: > users.id]
   created_at timestamp [not null]
   updated_at timestamp [not null]
 
@@ -95,6 +105,7 @@ Table feedback {
     project_id
     status
     category
+    (public_form_id, public_submission_key) [unique]
   }
 }
 
@@ -105,13 +116,10 @@ Table user_needs {
   description text [not null]
   status user_need_status [not null, default: 'CANDIDATE']
   confidence decimal(5,4)
+  source_analysis_run_id uuid [ref: > analysis_runs.id]
+  reviewed_by_id uuid [ref: > users.id]
   created_at timestamp [not null]
   updated_at timestamp [not null]
-
-  indexes {
-    project_id
-    status
-  }
 }
 
 Table feedback_need_links {
@@ -134,15 +142,18 @@ Table requirements {
   type requirement_type [not null]
   status requirement_status [not null, default: 'DRAFT']
   generated_by generated_by_type [not null]
+  source_type requirement_source_type [not null, default: 'MANUAL']
+  source_reference varchar(500)
+  additional_context text
+  source_analysis_run_id uuid [ref: > analysis_runs.id]
+  reviewed_by_id uuid [ref: > users.id]
+  review_note text
+  acknowledged_outdated_validation boolean [not null, default: false]
+  acknowledged_open_high_issues boolean [not null, default: false]
+  reviewed_at timestamp
   confidence decimal(5,4)
   created_at timestamp [not null]
   updated_at timestamp [not null]
-
-  indexes {
-    project_id
-    status
-    type
-  }
 }
 
 Table need_requirement_links {
@@ -166,13 +177,11 @@ Table requirement_issues {
   suggestion text
   confidence decimal(5,4)
   status issue_status [not null, default: 'OPEN']
+  source_analysis_run_id uuid [ref: > analysis_runs.id]
+  resolved_at timestamp
+  resolved_by_id uuid [ref: > users.id]
   created_at timestamp [not null]
-
-  indexes {
-    requirement_id
-    issue_type
-    status
-  }
+  updated_at timestamp [not null]
 }
 
 Table analysis_runs {
@@ -180,16 +189,72 @@ Table analysis_runs {
   project_id uuid [not null, ref: > projects.id]
   analysis_type analysis_type [not null]
   model varchar(255)
+  idempotency_key varchar(255) [not null]
+  created_by_id uuid [ref: > users.id]
+  subject_requirement_id uuid [ref: > requirements.id]
   input_snapshot jsonb
   output_json jsonb
   status analysis_status [not null, default: 'PENDING']
+  error_code varchar(100)
   error_message text
-  created_at timestamp [not null]
+  attempt_count integer [not null, default: 0]
+  max_attempts integer [not null, default: 3]
+  started_at timestamp
+  heartbeat_at timestamp
+  next_attempt_at timestamp
   completed_at timestamp
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
 
   indexes {
     project_id
     analysis_type
     status
+    (project_id, created_by_id, idempotency_key) [unique]
+  }
+}
+
+Table feedback_similarity_links {
+  feedback_low_id uuid [not null, ref: > feedback.id]
+  feedback_high_id uuid [not null, ref: > feedback.id]
+  score decimal(5,4) [not null]
+  analysis_run_id uuid [ref: > analysis_runs.id]
+  created_at timestamp [not null]
+
+  indexes {
+    (feedback_low_id, feedback_high_id) [pk]
+    feedback_high_id
+  }
+}
+
+Table consistency_findings {
+  id uuid [pk]
+  project_id uuid [not null, ref: > projects.id]
+  analysis_run_id uuid [not null, ref: > analysis_runs.id]
+  need_id uuid [ref: > user_needs.id]
+  requirement_id uuid [ref: > requirements.id]
+  finding_type consistency_finding_type [not null]
+  severity issue_severity [not null]
+  description text [not null]
+  evidence text
+  suggestion text
+  confidence decimal(5,4)
+  status issue_status [not null, default: 'OPEN']
+  resolved_by_id uuid [ref: > users.id]
+  created_at timestamp [not null]
+  updated_at timestamp [not null]
+}
+
+Table requirement_baselines {
+  id uuid [pk]
+  project_id uuid [not null, ref: > projects.id]
+  version integer [not null]
+  snapshot json [not null]
+  created_by_id uuid [ref: > users.id]
+  created_at timestamp [not null]
+
+  indexes {
+    (project_id, version) [unique]
+    project_id
   }
 }

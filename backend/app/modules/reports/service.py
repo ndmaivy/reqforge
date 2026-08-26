@@ -14,6 +14,7 @@ from app.db.models import Project, Requirement, RequirementBaseline
 from app.db.models.enums import (
     FeedbackStatus,
     IssueStatus,
+    ProjectRole,
     RequirementStatus,
     UserNeedStatus,
 )
@@ -25,6 +26,7 @@ from app.modules.reports.schemas import (
     BaselineSummary,
     FeedbackSummary,
     KeyUserNeed,
+    OutstandingConsistencyFinding,
     OutstandingIssue,
     ProjectReport,
     ReportProjectSummary,
@@ -46,12 +48,12 @@ class ReportService:
         self.repository = ReportRepository(session)
         self.projects = ProjectService(session)
 
-    def get_live_report(self, project_id: UUID, owner_id: UUID) -> ProjectReport:
-        project = self.projects.get(project_id, owner_id)
+    def get_live_report(self, project_id: UUID, user_id: UUID) -> ProjectReport:
+        project = self.projects.get(project_id, user_id)
         return self._build_report(project)
 
-    def create_baseline(self, project_id: UUID, owner_id: UUID) -> RequirementBaseline:
-        project = self.projects.get(project_id, owner_id)
+    def create_baseline(self, project_id: UUID, user_id: UUID) -> RequirementBaseline:
+        project = self.projects.get(project_id, user_id, ProjectRole.EDITOR)
         report = self._build_report(project)
         if not report.approved_requirement_set:
             raise BaselineCreationError(
@@ -62,21 +64,24 @@ class ReportService:
                 project_id=project.id,
                 version=self.repository.next_baseline_version(project.id),
                 snapshot=report.model_dump(mode="json"),
+                created_by_id=user_id,
             )
         )
         self.session.commit()
         self.session.refresh(baseline)
         return baseline
 
-    def list_baselines(self, project_id: UUID, owner_id: UUID) -> list[RequirementBaseline]:
-        self.projects.get(project_id, owner_id)
+    def list_baselines(self, project_id: UUID, user_id: UUID) -> list[RequirementBaseline]:
+        self.projects.get(project_id, user_id)
         return self.repository.list_baselines(project_id)
 
-    def get_baseline(self, baseline_id: UUID, owner_id: UUID) -> RequirementBaseline:
+    def get_baseline(
+        self, project_id: UUID, baseline_id: UUID, user_id: UUID
+    ) -> RequirementBaseline:
         baseline = self.repository.get_baseline(baseline_id)
-        if baseline is None:
+        if baseline is None or baseline.project_id != project_id:
             raise BaselineNotFound("Requirement baseline not found")
-        self.projects.get(baseline.project_id, owner_id)
+        self.projects.get(project_id, user_id)
         return baseline
 
     def baseline_response(self, baseline: RequirementBaseline) -> BaselineResponse:
@@ -85,6 +90,7 @@ class ReportService:
             project_id=baseline.project_id,
             version=baseline.version,
             created_at=baseline.created_at,
+            created_by_id=baseline.created_by_id,
             snapshot=ProjectReport.model_validate(baseline.snapshot),
         )
 
@@ -103,6 +109,8 @@ class ReportService:
                 "type",
                 "status",
                 "generated_by",
+                "source_type",
+                "source_reference",
                 "confidence",
                 "source_need_ids",
                 "source_need_titles",
@@ -122,6 +130,8 @@ class ReportService:
                     "type": requirement.type.value,
                     "status": requirement.status.value,
                     "generated_by": requirement.generated_by.value,
+                    "source_type": requirement.source_type.value,
+                    "source_reference": requirement.source_reference or "",
                     "confidence": (
                         requirement.confidence if requirement.confidence is not None else ""
                     ),
@@ -145,6 +155,7 @@ class ReportService:
         requirements = self.repository.requirements_for_project(project.id)
         validation_runs = self.repository.completed_validation_runs(project.id)
         validation_by_requirement = self._latest_validation_runs(validation_runs)
+        consistency_findings = self.repository.open_consistency_findings(project.id)
 
         feedback_statuses = self._status_counts(feedback, FeedbackStatus)
         need_statuses = self._status_counts(needs, UserNeedStatus)
@@ -195,6 +206,11 @@ class ReportService:
             project=ReportProjectSummary(
                 id=project.id,
                 name=project.name,
+                product_name=project.product_name,
+                goal=project.goal,
+                target_users=project.target_users,
+                platform=project.platform,
+                main_features=project.main_features,
                 generated_at=datetime.now(UTC),
                 feedback_coverage_start=min(feedback_dates) if feedback_dates else None,
                 feedback_coverage_end=max(feedback_dates) if feedback_dates else None,
@@ -242,6 +258,21 @@ class ReportService:
             approved_requirement_set=approved_set,
             traceability_matrix=traceability,
             outstanding_issues=outstanding_issues,
+            consistency_findings=[
+                OutstandingConsistencyFinding(
+                    id=item.id,
+                    finding_type=item.finding_type,
+                    severity=item.severity,
+                    status=item.status,
+                    need_id=item.need_id,
+                    requirement_id=item.requirement_id,
+                    description=item.description,
+                    suggestion=item.suggestion,
+                    confidence=item.confidence,
+                    created_at=item.created_at,
+                )
+                for item in consistency_findings
+            ],
         )
 
     @staticmethod
@@ -292,6 +323,11 @@ class ReportService:
             type=requirement.type,
             status=requirement.status,
             generated_by=requirement.generated_by,
+            source_type=requirement.source_type,
+            source_reference=requirement.source_reference,
+            review_note=requirement.review_note,
+            acknowledged_outdated_validation=requirement.acknowledged_outdated_validation,
+            acknowledged_open_high_issues=requirement.acknowledged_open_high_issues,
             confidence=requirement.confidence,
             source_needs=needs,
             supporting_feedback_ids=sorted(feedback_ids, key=str),

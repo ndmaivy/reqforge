@@ -7,7 +7,9 @@ import type {
   FeedbackUpdateRequest,
 } from "../types/feedback";
 
-const FEEDBACK_PATH = "/api/v1/feedback";
+function projectFeedbackPath(projectId: string): string {
+  return `/api/v1/projects/${encodeURIComponent(projectId)}/feedback`;
+}
 
 export async function listFeedback(
   projectId: string,
@@ -16,7 +18,7 @@ export async function listFeedback(
 ): Promise<ListResponse<FeedbackDto>> {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   return apiRequest<ListResponse<FeedbackDto>>(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/feedback?${params.toString()}`,
+    `${projectFeedbackPath(projectId)}?${params.toString()}`,
   );
 }
 
@@ -25,7 +27,7 @@ export async function createFeedback(
   payload: FeedbackCreateRequest,
 ): Promise<FeedbackDto> {
   const response = await apiRequest<DataResponse<FeedbackDto>>(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/feedback`,
+    projectFeedbackPath(projectId),
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -41,25 +43,26 @@ export async function importFeedback(
   const formData = new FormData();
   formData.append("file", file);
   const response = await apiRequest<DataResponse<FeedbackImportResult>>(
-    `/api/v1/projects/${encodeURIComponent(projectId)}/feedback/import`,
+    `${projectFeedbackPath(projectId)}/import`,
     { method: "POST", body: formData },
   );
   return response.data;
 }
 
-export async function getFeedback(feedbackId: string): Promise<FeedbackDto> {
+export async function getFeedback(projectId: string, feedbackId: string): Promise<FeedbackDto> {
   const response = await apiRequest<DataResponse<FeedbackDto>>(
-    `${FEEDBACK_PATH}/${encodeURIComponent(feedbackId)}`,
+    `${projectFeedbackPath(projectId)}/${encodeURIComponent(feedbackId)}`,
   );
   return response.data;
 }
 
 export async function updateFeedback(
+  projectId: string,
   feedbackId: string,
   payload: FeedbackUpdateRequest,
 ): Promise<FeedbackDto> {
   const response = await apiRequest<DataResponse<FeedbackDto>>(
-    `${FEEDBACK_PATH}/${encodeURIComponent(feedbackId)}`,
+    `${projectFeedbackPath(projectId)}/${encodeURIComponent(feedbackId)}`,
     {
       method: "PATCH",
       body: JSON.stringify(payload),
@@ -68,9 +71,12 @@ export async function updateFeedback(
   return response.data;
 }
 
-export async function archiveFeedback(feedbackId: string): Promise<FeedbackDto> {
+export async function archiveFeedback(
+  projectId: string,
+  feedbackId: string,
+): Promise<FeedbackDto> {
   const response = await apiRequest<DataResponse<FeedbackDto>>(
-    `${FEEDBACK_PATH}/${encodeURIComponent(feedbackId)}/archive`,
+    `${projectFeedbackPath(projectId)}/${encodeURIComponent(feedbackId)}/archive`,
     { method: "POST" },
   );
   return response.data;

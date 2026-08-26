@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import (
     AnalysisRun,
+    ConsistencyFinding,
     Feedback,
     FeedbackNeedLink,
     NeedRequirementLink,
@@ -64,6 +65,20 @@ class ReportRepository:
             .order_by(AnalysisRun.completed_at.desc(), AnalysisRun.id.desc())
         )
         return list(self.session.scalars(statement))
+
+    def open_consistency_findings(self, project_id: UUID) -> list[ConsistencyFinding]:
+        from app.db.models.enums import IssueStatus
+
+        return list(
+            self.session.scalars(
+                select(ConsistencyFinding)
+                .where(
+                    ConsistencyFinding.project_id == project_id,
+                    ConsistencyFinding.status == IssueStatus.OPEN,
+                )
+                .order_by(ConsistencyFinding.created_at, ConsistencyFinding.id)
+            )
+        )
 
     def create_baseline(self, baseline: RequirementBaseline) -> RequirementBaseline:
         self.session.add(baseline)

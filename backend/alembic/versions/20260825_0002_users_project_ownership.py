@@ -35,9 +35,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_users_email"), "users", ["email"], unique=True)
     op.add_column("projects", sa.Column("owner_id", sa.Uuid(), nullable=True))
     op.create_index("ix_projects_owner_id", "projects", ["owner_id"], unique=False)
-    op.create_foreign_key(
-        "fk_projects_owner_id_users", "projects", "users", ["owner_id"], ["id"]
-    )
+    op.create_foreign_key("fk_projects_owner_id_users", "projects", "users", ["owner_id"], ["id"])
 
 
 def downgrade() -> None:

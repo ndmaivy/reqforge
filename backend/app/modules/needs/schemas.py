@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.db.models.enums import UserNeedStatus
+from app.db.models.enums import FeedbackStatus, UserNeedStatus
 
 
 class UserNeedUpdate(BaseModel):
@@ -44,9 +45,45 @@ class FeedbackEvidence(BaseModel):
     content: str
     source: str | None
     feedback_date: datetime | None
+    status: FeedbackStatus
     relevance_score: Decimal | None
 
 
 class UserNeedDetailResponse(UserNeedResponse):
     supporting_feedback: list[FeedbackEvidence]
     evidence_count: int
+
+
+class TrendGranularity(StrEnum):
+    WEEK = "WEEK"
+    MONTH = "MONTH"
+
+
+class TrendClassification(StrEnum):
+    NEW = "NEW"
+    RISING = "RISING"
+    FALLING = "FALLING"
+    STABLE = "STABLE"
+
+
+class NeedTrendBucket(BaseModel):
+    period: str
+    count: int
+
+
+class NeedTrendSeries(BaseModel):
+    need_id: UUID
+    need_title: str
+    total: int
+    current_count: int
+    previous_count: int
+    delta: int
+    classification: TrendClassification
+    buckets: list[NeedTrendBucket]
+
+
+class NeedTrendResponse(BaseModel):
+    granularity: TrendGranularity
+    date_from: datetime | None
+    date_to: datetime | None
+    series: list[NeedTrendSeries]

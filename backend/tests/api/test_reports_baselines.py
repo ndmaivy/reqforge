@@ -177,7 +177,7 @@ def test_baselines_are_versioned_and_immutable_after_project_changes(client):
     assert len(first_data["snapshot"]["approved_requirement_set"]) == 1
 
     seed_report_data(client, project_id, "Second approved requirement")
-    old_baseline = client.get(f"/api/v1/baselines/{first_data['id']}")
+    old_baseline = client.get(f"/api/v1/projects/{project_id}/baselines/{first_data['id']}")
     assert old_baseline.status_code == 200
     snapshot = old_baseline.json()["data"]["snapshot"]
     assert [item["id"] for item in snapshot["approved_requirement_set"]] == [
@@ -206,7 +206,9 @@ def test_baseline_csv_uses_the_persisted_snapshot(client):
     baseline = client.post(f"/api/v1/projects/{project_id}/baselines").json()["data"]
     seed_report_data(client, project_id, "Later requirement")
 
-    response = client.get(f"/api/v1/baselines/{baseline['id']}/requirements.csv")
+    response = client.get(
+        f"/api/v1/projects/{project_id}/baselines/{baseline['id']}/requirements.csv"
+    )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
@@ -233,8 +235,16 @@ def test_reports_and_baseline_exports_are_isolated_by_project_owner(client):
     headers = {"Authorization": f"Bearer {second_user['access_token']}"}
 
     assert client.get(f"/api/v1/projects/{project_id}/report", headers=headers).status_code == 404
-    assert client.get(f"/api/v1/baselines/{baseline_id}", headers=headers).status_code == 404
     assert (
-        client.get(f"/api/v1/baselines/{baseline_id}/requirements.csv", headers=headers).status_code
+        client.get(
+            f"/api/v1/projects/{project_id}/baselines/{baseline_id}", headers=headers
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"/api/v1/projects/{project_id}/baselines/{baseline_id}/requirements.csv",
+            headers=headers,
+        ).status_code
         == 404
     )

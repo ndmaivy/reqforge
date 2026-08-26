@@ -5,12 +5,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_session
+from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
+from app.db.models import User
 from app.db.models.enums import IssueStatus, RequirementStatus, RequirementType
 from app.modules.requirements.schemas import (
     FeedbackEvidence,
     NeedEvidence,
+    RequirementApprovalRequest,
     RequirementCreate,
     RequirementDetailResponse,
     RequirementEvidenceResponse,
@@ -31,9 +33,12 @@ router = APIRouter(tags=["Requirements"])
     summary="Create a manual requirement",
 )
 def create_requirement(
-    project_id: UUID, payload: RequirementCreate, session: Session = Depends(get_session)
+    project_id: UUID,
+    payload: RequirementCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementResponse]:
-    requirement = RequirementService(session).create(project_id, payload)
+    requirement = RequirementService(session).create(project_id, payload, current_user.id)
     return DataResponse(data=RequirementResponse.model_validate(requirement))
 
 
@@ -49,6 +54,7 @@ def list_requirements(
     search: str | None = None,
     has_open_issues: bool | None = None,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> ListResponse[RequirementResponse]:
     items, total = RequirementService(session).list(
         project_id,
@@ -58,6 +64,7 @@ def list_requirements(
         requirement_type,
         search,
         has_open_issues,
+        current_user.id,
     )
     return ListResponse(
         data=[RequirementResponse.model_validate(item) for item in items],
@@ -65,16 +72,24 @@ def list_requirements(
     )
 
 
-@router.get(
-    "/requirements/{requirement_id}",
+@project_router.get(
+    "/{requirement_id}",
     response_model=DataResponse[RequirementDetailResponse],
     summary="Get requirement detail",
 )
 def get_requirement(
-    requirement_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementDetailResponse]:
     service = RequirementService(session)
-    requirement = service.get(requirement_id, with_traceability=True)
+    requirement = service.get(
+        requirement_id,
+        with_traceability=True,
+        project_id=project_id,
+        user_id=current_user.id,
+    )
     outdated, run_id = service.validation_state(requirement)
     data = RequirementResponse.model_validate(requirement).model_dump()
     needs = [
@@ -93,106 +108,146 @@ def get_requirement(
     )
 
 
-@router.patch(
-    "/requirements/{requirement_id}",
+@project_router.patch(
+    "/{requirement_id}",
     response_model=DataResponse[RequirementResponse],
     summary="Edit a requirement awaiting review",
 )
 def update_requirement(
+    project_id: UUID,
     requirement_id: UUID,
     payload: RequirementUpdate,
     session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementResponse]:
-    requirement = RequirementService(session).update(requirement_id, payload)
+    requirement = RequirementService(session).update(
+        project_id, requirement_id, payload, current_user.id
+    )
     return DataResponse(data=RequirementResponse.model_validate(requirement))
 
 
 def _requirement_action(
-    requirement_id: UUID, action: str, session: Session
+    project_id: UUID, requirement_id: UUID, action: str, session: Session, user_id: UUID
 ) -> DataResponse[RequirementResponse]:
     service = RequirementService(session)
-    requirement = getattr(service, action)(requirement_id)
+    requirement = getattr(service, action)(project_id, requirement_id, user_id)
     return DataResponse(data=RequirementResponse.model_validate(requirement))
 
 
-@router.post(
-    "/requirements/{requirement_id}/approve",
+@project_router.post(
+    "/{requirement_id}/approve",
     response_model=DataResponse[RequirementResponse],
     summary="Approve a requirement",
 )
 def approve_requirement(
-    requirement_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    payload: RequirementApprovalRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementResponse]:
-    return _requirement_action(requirement_id, "approve", session)
+    requirement = RequirementService(session).approve(
+        project_id, requirement_id, payload, current_user.id
+    )
+    return DataResponse(data=RequirementResponse.model_validate(requirement))
 
 
-@router.post(
-    "/requirements/{requirement_id}/reject",
+@project_router.post(
+    "/{requirement_id}/reject",
     response_model=DataResponse[RequirementResponse],
     summary="Reject a requirement",
 )
 def reject_requirement(
-    requirement_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementResponse]:
-    return _requirement_action(requirement_id, "reject", session)
+    return _requirement_action(project_id, requirement_id, "reject", session, current_user.id)
 
 
-@router.post(
-    "/requirements/{requirement_id}/archive",
+@project_router.post(
+    "/{requirement_id}/archive",
     response_model=DataResponse[RequirementResponse],
     summary="Archive a requirement",
 )
 def archive_requirement(
-    requirement_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementResponse]:
-    return _requirement_action(requirement_id, "archive", session)
+    return _requirement_action(project_id, requirement_id, "archive", session, current_user.id)
 
 
-@router.get(
-    "/requirements/{requirement_id}/issues",
+@project_router.get(
+    "/{requirement_id}/issues",
     response_model=DataResponse[list[RequirementIssueResponse]],
     summary="List requirement validation findings",
 )
 def list_requirement_issues(
-    requirement_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[list[RequirementIssueResponse]]:
-    issues = RequirementService(session).list_issues(requirement_id)
+    issues = RequirementService(session).list_issues(project_id, requirement_id, current_user.id)
     return DataResponse(data=[RequirementIssueResponse.model_validate(issue) for issue in issues])
 
 
-@router.post(
-    "/requirement-issues/{issue_id}/resolve",
+@project_router.post(
+    "/{requirement_id}/issues/{issue_id}/resolve",
     response_model=DataResponse[RequirementIssueResponse],
     summary="Resolve a requirement issue",
 )
 def resolve_issue(
-    issue_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    issue_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementIssueResponse]:
-    issue = RequirementService(session).transition_issue(issue_id, IssueStatus.RESOLVED)
+    issue = RequirementService(session).transition_issue(
+        project_id, requirement_id, issue_id, IssueStatus.RESOLVED, current_user.id
+    )
     return DataResponse(data=RequirementIssueResponse.model_validate(issue))
 
 
-@router.post(
-    "/requirement-issues/{issue_id}/dismiss",
+@project_router.post(
+    "/{requirement_id}/issues/{issue_id}/dismiss",
     response_model=DataResponse[RequirementIssueResponse],
     summary="Dismiss a requirement issue",
 )
 def dismiss_issue(
-    issue_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    issue_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementIssueResponse]:
-    issue = RequirementService(session).transition_issue(issue_id, IssueStatus.DISMISSED)
+    issue = RequirementService(session).transition_issue(
+        project_id, requirement_id, issue_id, IssueStatus.DISMISSED, current_user.id
+    )
     return DataResponse(data=RequirementIssueResponse.model_validate(issue))
 
 
-@router.get(
-    "/requirements/{requirement_id}/evidence",
+@project_router.get(
+    "/{requirement_id}/evidence",
     response_model=DataResponse[RequirementEvidenceResponse],
     summary="Trace requirement source evidence",
 )
 def get_requirement_evidence(
-    requirement_id: UUID, session: Session = Depends(get_session)
+    project_id: UUID,
+    requirement_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ) -> DataResponse[RequirementEvidenceResponse]:
-    requirement = RequirementService(session).get(requirement_id, with_traceability=True)
+    requirement = RequirementService(session).get(
+        requirement_id,
+        with_traceability=True,
+        project_id=project_id,
+        user_id=current_user.id,
+    )
     needs = []
     feedback_by_id = {}
     for link in requirement.need_links:

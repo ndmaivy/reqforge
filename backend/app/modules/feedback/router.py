@@ -15,11 +15,12 @@ from app.modules.feedback.schemas import (
     FeedbackImportResponse,
     FeedbackResponse,
     FeedbackUpdate,
+    SimilarFeedbackResponse,
 )
 from app.modules.feedback.service import FeedbackService
 
 project_router = APIRouter(prefix="/projects/{project_id}/feedback", tags=["Feedback"])
-router = APIRouter(prefix="/feedback", tags=["Feedback"])
+router = APIRouter(tags=["Feedback"])
 
 
 @project_router.post(
@@ -77,6 +78,8 @@ def list_feedback(
     status: FeedbackStatus | None = None,
     source: str | None = None,
     category: str | None = None,
+    user_segment: str | None = None,
+    is_noise: bool | None = None,
     search: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -90,6 +93,8 @@ def list_feedback(
         status,
         source,
         category,
+        user_segment,
+        is_noise,
         search,
         date_from,
         date_to,
@@ -101,42 +106,69 @@ def list_feedback(
     )
 
 
-@router.get(
+@project_router.get(
     "/{feedback_id}",
     response_model=DataResponse[FeedbackResponse],
     summary="Get feedback detail",
 )
 def get_feedback(
+    project_id: UUID,
     feedback_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).get(feedback_id, current_user.id)
+    feedback = FeedbackService(session).get(project_id, feedback_id, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
 
 
-@router.patch(
+@project_router.patch(
     "/{feedback_id}", response_model=DataResponse[FeedbackResponse], summary="Edit feedback"
 )
 def update_feedback(
+    project_id: UUID,
     feedback_id: UUID,
     payload: FeedbackUpdate,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).update(feedback_id, payload, current_user.id)
+    feedback = FeedbackService(session).update(project_id, feedback_id, payload, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
 
 
-@router.post(
+@project_router.post(
     "/{feedback_id}/archive",
     response_model=DataResponse[FeedbackResponse],
     summary="Archive feedback",
 )
 def archive_feedback(
+    project_id: UUID,
     feedback_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
-    feedback = FeedbackService(session).archive(feedback_id, current_user.id)
+    feedback = FeedbackService(session).archive(project_id, feedback_id, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
+
+
+@project_router.get(
+    "/{feedback_id}/similar",
+    response_model=DataResponse[list[SimilarFeedbackResponse]],
+    summary="List persisted similar feedback",
+)
+def list_similar_feedback(
+    project_id: UUID,
+    feedback_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DataResponse[list[SimilarFeedbackResponse]]:
+    matches = FeedbackService(session).similar(project_id, feedback_id, current_user.id)
+    return DataResponse(
+        data=[
+            SimilarFeedbackResponse(
+                feedback=FeedbackResponse.model_validate(feedback),
+                score=link.score,
+                analysis_run_id=link.analysis_run_id,
+            )
+            for feedback, link in matches
+        ]
+    )

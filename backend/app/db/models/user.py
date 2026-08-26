@@ -17,7 +17,7 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    projects: Mapped[list[Project]] = relationship(back_populates="owner")
+    project_memberships: Mapped[list[ProjectMember]] = relationship(back_populates="user")
 
 
-from app.db.models.project import Project  # noqa: E402
+from app.db.models.project_member import ProjectMember  # noqa: E402

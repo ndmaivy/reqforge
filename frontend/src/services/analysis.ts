@@ -10,17 +10,22 @@ import type {
 export async function startFeedbackAnalysis(
   projectId: string,
   payload: FeedbackAnalysisRequest,
+  idempotencyKey: string,
 ): Promise<AnalysisAcceptedDto> {
   const response = await apiRequest<DataResponse<AnalysisAcceptedDto>>(
     `/api/v1/projects/${encodeURIComponent(projectId)}/analysis/feedback`,
-    { method: "POST", body: JSON.stringify(payload) },
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(payload),
+    },
   );
   return response.data;
 }
 
-export async function getAnalysisRun(runId: string): Promise<AnalysisRunDto> {
+export async function getAnalysisRun(projectId: string, runId: string): Promise<AnalysisRunDto> {
   const response = await apiRequest<DataResponse<AnalysisRunDto>>(
-    `/api/v1/analysis-runs/${encodeURIComponent(runId)}`,
+    `/api/v1/projects/${encodeURIComponent(projectId)}/analysis-runs/${encodeURIComponent(runId)}`,
   );
   return response.data;
 }
@@ -28,20 +33,27 @@ export async function getAnalysisRun(runId: string): Promise<AnalysisRunDto> {
 export async function startRequirementGeneration(
   projectId: string,
   payload: RequirementGenerationRequest,
+  idempotencyKey: string,
 ): Promise<AnalysisAcceptedDto> {
   const response = await apiRequest<DataResponse<AnalysisAcceptedDto>>(
     `/api/v1/projects/${encodeURIComponent(projectId)}/analysis/requirements/generate`,
-    { method: "POST", body: JSON.stringify(payload) },
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify(payload),
+    },
   );
   return response.data;
 }
 
 export async function startRequirementValidation(
+  projectId: string,
   requirementId: string,
+  idempotencyKey: string,
 ): Promise<AnalysisAcceptedDto> {
   const response = await apiRequest<DataResponse<AnalysisAcceptedDto>>(
-    `/api/v1/requirements/${encodeURIComponent(requirementId)}/validate`,
-    { method: "POST" },
+    `/api/v1/projects/${encodeURIComponent(projectId)}/analysis/requirements/${encodeURIComponent(requirementId)}/validate`,
+    { method: "POST", headers: { "Idempotency-Key": idempotencyKey } },
   );
   return response.data;
 }
@@ -61,13 +73,14 @@ function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
 }
 
 export async function pollAnalysisRun(
+  projectId: string,
   runId: string,
   options: { signal?: AbortSignal; intervalMs?: number; maxAttempts?: number } = {},
 ): Promise<AnalysisRunDto> {
   const { signal, intervalMs = 1500, maxAttempts = 40 } = options;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (signal?.aborted) throw new DOMException("Analysis polling was cancelled.", "AbortError");
-    const run = await getAnalysisRun(runId);
+    const run = await getAnalysisRun(projectId, runId);
     if (run.status === "COMPLETED" || run.status === "FAILED") return run;
     await wait(intervalMs, signal);
   }

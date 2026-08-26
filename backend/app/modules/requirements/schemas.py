@@ -11,6 +11,7 @@ from app.db.models.enums import (
     IssueSeverity,
     IssueStatus,
     RequirementIssueType,
+    RequirementSourceType,
     RequirementStatus,
     RequirementType,
     UserNeedStatus,
@@ -24,6 +25,9 @@ class RequirementCreate(BaseModel):
     description: str = Field(min_length=1)
     type: RequirementType
     need_ids: list[UUID] = Field(default_factory=list)
+    source_type: RequirementSourceType = RequirementSourceType.MANUAL
+    source_reference: str | None = Field(default=None, max_length=500)
+    additional_context: str | None = None
 
     @field_validator("title", "description")
     @classmethod
@@ -40,6 +44,9 @@ class RequirementUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, min_length=1)
     type: RequirementType | None = None
+    source_type: RequirementSourceType | None = None
+    source_reference: str | None = Field(default=None, max_length=500)
+    additional_context: str | None = None
 
     @field_validator("title", "description")
     @classmethod
@@ -52,6 +59,14 @@ class RequirementUpdate(BaseModel):
         return value
 
 
+class RequirementApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    acknowledge_outdated_validation: bool = False
+    acknowledge_open_high_issues: bool = False
+    review_note: str | None = Field(default=None, max_length=2_000)
+
+
 class RequirementResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +77,15 @@ class RequirementResponse(BaseModel):
     type: RequirementType
     status: RequirementStatus
     generated_by: GeneratedByType
+    source_type: RequirementSourceType
+    source_reference: str | None
+    additional_context: str | None
+    source_analysis_run_id: UUID | None
+    reviewed_by_id: UUID | None
+    review_note: str | None
+    acknowledged_outdated_validation: bool
+    acknowledged_open_high_issues: bool
+    reviewed_at: datetime | None
     confidence: Decimal | None
     created_at: datetime
     updated_at: datetime
@@ -79,7 +103,11 @@ class RequirementIssueResponse(BaseModel):
     suggestion: str | None
     confidence: Decimal | None
     status: IssueStatus
+    source_analysis_run_id: UUID | None
+    resolved_at: datetime | None
+    resolved_by_id: UUID | None
     created_at: datetime
+    updated_at: datetime
 
 
 class NeedEvidence(BaseModel):

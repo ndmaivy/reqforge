@@ -2,9 +2,14 @@ import { useMemo, useRef, useState } from "react";
 import { Search, Sparkles, CheckCircle, XCircle, Edit3, X, MessageSquare, TrendingUp, ChevronDown, FileText, Loader } from "lucide-react";
 import { toast } from "sonner";
 import type { NeedStatus, ConfidenceLevel, Requirement } from "../data/mockData";
-import type { UserNeedDetailDto, UserNeedUpdateRequest, UserNeedViewModel } from "../../types/userNeed";
+import type {
+  FeedbackEvidenceDto,
+  UserNeedDetailDto,
+  UserNeedUpdateRequest,
+  UserNeedViewModel,
+} from "../../types/userNeed";
 import { getErrorMessage } from "../../services/api";
-import { ConfirmDialog } from "./Modal";
+import { ConfirmDialog, Modal } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
 import { useLanguage } from "../i18n/LanguageContext";
 
@@ -32,9 +37,69 @@ interface NeedDetailProps {
   onConfirm: () => Promise<boolean>;
   onReject: () => Promise<boolean>;
   onSave: (title: string, description: string) => Promise<boolean>;
+  onReviewSourceFeedback: () => void;
 }
 
-function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave }: NeedDetailProps) {
+function feedbackStatusLabel(
+  status: FeedbackEvidenceDto["status"],
+  tr: ReturnType<typeof useLanguage>["tr"],
+): string {
+  return tr.status[status === "NEW" ? "New" : status === "ANALYZED" ? "Analyzed" : "Archived"];
+}
+
+interface SourceFeedbackModalProps {
+  feedback: FeedbackEvidenceDto[];
+  onClose: () => void;
+  onAnalyze: (feedbackIds: string[]) => Promise<void>;
+}
+
+function SourceFeedbackModal({ feedback, onClose, onAnalyze }: SourceFeedbackModalProps) {
+  const { tr } = useLanguage();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(feedback.filter((item) => item.status !== "ARCHIVED").map((item) => item.id)),
+  );
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (feedbackId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      next.has(feedbackId) ? next.delete(feedbackId) : next.add(feedbackId);
+      return next;
+    });
+  };
+
+  const run = async () => {
+    if (!selectedIds.size) return;
+    setRunning(true);
+    setError(null);
+    try {
+      await onAnalyze([...selectedIds]);
+      onClose();
+      toast.success(tr.userNeeds.sourceAnalysisCompleted);
+    } catch (requestError) {
+      const message = getErrorMessage(requestError, tr.userNeeds.sourceAnalysisError);
+      setError(message.toLowerCase().includes("timeout") ? tr.userNeeds.analysisTimeout : message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <Modal title={tr.userNeeds.sourceFeedbackTitle} subtitle={tr.userNeeds.sourceFeedbackSubtitle} onClose={running ? undefined : onClose} width="620px">
+      <div className="px-5 py-5">
+        {!feedback.length ? <p style={{ fontSize: "13px", color: "#64748B" }}>{tr.userNeeds.noSourceFeedback}</p> : <div className="max-h-80 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>{feedback.map((item) => <label key={item.id} className="flex cursor-pointer gap-3 border-b px-3 py-3 last:border-b-0" style={{ borderColor: "#F1F5F9", background: selectedIds.has(item.id) ? "#EFF6FF" : "#fff" }}><input type="checkbox" className="mt-1" disabled={item.status === "ARCHIVED"} checked={selectedIds.has(item.id)} onChange={() => toggle(item.id)} /><span className="min-w-0 flex-1"><span className="block line-clamp-2" style={{ fontSize: "12.5px", color: "#0F172A" }}>{item.content}</span><span className="mt-1 block" style={{ fontSize: "11px", color: "#64748B" }}>{item.source ?? tr.common.none} · {item.feedback_date ?? tr.common.none} · {feedbackStatusLabel(item.status, tr)}</span></span></label>)}</div>}
+        {error && <p className="mt-3 rounded-md px-3 py-2" style={{ background: "#FEF2F2", color: "#B91C1C", fontSize: "12px" }}>{error}</p>}
+      </div>
+      <div className="flex gap-2 border-t px-5 py-4" style={{ borderColor: "var(--border)" }}>
+        <button onClick={onClose} disabled={running} className="rounded-md border px-4 py-2" style={{ borderColor: "var(--border)", color: "#475569", fontSize: "13px" }}>{tr.common.close}</button>
+        <button onClick={() => void run()} disabled={!selectedIds.size || running} className="flex-1 rounded-md py-2 text-white disabled:opacity-50" style={{ background: "#1E3A8A", fontSize: "13px", fontWeight: 500 }}>{running ? tr.userNeeds.reanalyzing : tr.userNeeds.reanalyzeSelected(selectedIds.size)}</button>
+      </div>
+    </Modal>
+  );
+}
+
+function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave, onReviewSourceFeedback }: NeedDetailProps) {
   const { tr } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(need.title);
@@ -171,6 +236,9 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
           </div>
         ) : (
           <div className="flex gap-1.5">
+            <button disabled={detailLoading || supportingFb.length === 0} onClick={onReviewSourceFeedback} className="flex items-center gap-1 px-3 py-1.5 rounded-md border hover:bg-blue-50 disabled:opacity-50 transition-colors" style={{ borderColor: "#BFDBFE", color: "#1E3A8A", fontSize: "12px", fontWeight: 500 }}>
+              <MessageSquare size={11} /> {tr.userNeeds.reviewSourceFeedback}
+            </button>
             {need.status === "Candidate" && (
               <button disabled={actionBusy} onClick={() => void onConfirm()} className="flex items-center gap-1 px-3 py-1.5 rounded-md text-white hover:opacity-90 disabled:opacity-60 transition-all" style={{ background: "#059669", fontSize: "12px", fontWeight: 500 }}>
                 <CheckCircle size={12} /> {tr.userNeeds.confirm}
@@ -212,6 +280,7 @@ interface UserNeedsProps {
   onSaveNeed: (needId: string, payload: UserNeedUpdateRequest) => Promise<UserNeedViewModel>;
   onConfirmNeed: (needId: string) => Promise<UserNeedViewModel>;
   onRejectNeed: (needId: string) => Promise<UserNeedViewModel>;
+  onAnalyzeSourceFeedback: (feedbackIds: string[]) => Promise<void>;
 }
 
 export function UserNeeds({
@@ -224,6 +293,7 @@ export function UserNeeds({
   onSaveNeed,
   onConfirmNeed,
   onRejectNeed,
+  onAnalyzeSourceFeedback,
 }: UserNeedsProps) {
   const { tr } = useLanguage();
   const [search, setSearch] = useState("");
@@ -234,6 +304,7 @@ export function UserNeeds({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [actionNeedId, setActionNeedId] = useState<string | null>(null);
+  const [showSourceFeedback, setShowSourceFeedback] = useState(false);
   const detailRequestId = useRef(0);
 
   const selected = selectedId ? needs.find((need) => need.id === selectedId) ?? null : null;
@@ -342,9 +413,6 @@ export function UserNeeds({
               <h1 style={{ fontSize: "19px", fontWeight: 600, color: "var(--foreground)", letterSpacing: "-0.02em" }}>{tr.userNeeds.title}</h1>
               <p style={{ fontSize: "13px", color: "var(--muted-foreground)", marginTop: "2px" }}>{tr.userNeeds.subtitle}</p>
             </div>
-            <button className="flex items-center gap-2 px-3.5 py-2 rounded-md border hover:bg-gray-50 transition-colors" style={{ borderColor: "var(--border)", fontSize: "13px", fontWeight: 500, color: "var(--foreground)" }}>
-              <Sparkles size={13} style={{ color: "#1E3A8A" }} /> {tr.userNeeds.analyzeFeedback}
-            </button>
           </div>
 
           {/* Summary */}
@@ -470,6 +538,17 @@ export function UserNeeds({
           onConfirm={() => confirm(selected.id)}
           onReject={() => reject(selected.id)}
           onSave={(title, description) => save(selected.id, title, description)}
+          onReviewSourceFeedback={() => setShowSourceFeedback(true)}
+        />
+      )}
+      {showSourceFeedback && selected && detail?.id === selected.id && (
+        <SourceFeedbackModal
+          feedback={detail.supporting_feedback}
+          onClose={() => setShowSourceFeedback(false)}
+          onAnalyze={async (feedbackIds) => {
+            await onAnalyzeSourceFeedback(feedbackIds);
+            await loadDetail(selected.id);
+          }}
         />
       )}
     </div>

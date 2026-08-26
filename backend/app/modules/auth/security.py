@@ -27,10 +27,8 @@ def verify_password(password: str, password_hash: str) -> bool:
 def create_access_token(user_id: UUID, settings: Settings) -> str:
     if not settings.jwt_secret_key:
         raise AuthenticationError("JWT secret key is not configured")
-    expires_at = datetime.now(UTC) + timedelta(
-        minutes=settings.jwt_access_token_expire_minutes
-    )
-    payload = {"sub": str(user_id), "exp": expires_at}
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
+    payload = {"sub": str(user_id), "iat": datetime.now(UTC), "exp": expires_at}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

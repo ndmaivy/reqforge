@@ -3,6 +3,17 @@ from __future__ import annotations
 from enum import StrEnum
 
 
+class ProjectStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
+class ProjectRole(StrEnum):
+    OWNER = "OWNER"
+    EDITOR = "EDITOR"
+    VIEWER = "VIEWER"
+
+
 class FeedbackStatus(StrEnum):
     NEW = "NEW"
     ANALYZED = "ANALYZED"
@@ -26,6 +37,17 @@ class RequirementStatus(StrEnum):
 class GeneratedByType(StrEnum):
     AI = "AI"
     HUMAN = "HUMAN"
+
+
+class RequirementSourceType(StrEnum):
+    AI_FROM_USER_NEED = "AI_FROM_USER_NEED"
+    MANUAL = "MANUAL"
+    STAKEHOLDER = "STAKEHOLDER"
+    POLICY = "POLICY"
+    COMPLIANCE = "COMPLIANCE"
+    EXISTING_SPECIFICATION = "EXISTING_SPECIFICATION"
+    TECHNICAL_CONSTRAINT = "TECHNICAL_CONSTRAINT"
+    OTHER = "OTHER"
 
 
 class RequirementType(StrEnum):
@@ -71,3 +93,12 @@ class AnalysisStatus(StrEnum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+
+
+class ConsistencyFindingType(StrEnum):
+    UNCOVERED_NEED = "UNCOVERED_NEED"
+    REQUIREMENT_WITHOUT_EVIDENCE = "REQUIREMENT_WITHOUT_EVIDENCE"
+    CONFLICT = "CONFLICT"
+    DUPLICATE = "DUPLICATE"
+    INTENT_MISMATCH = "INTENT_MISMATCH"
+    FEEDBACK_INCONSISTENCY = "FEEDBACK_INCONSISTENCY"

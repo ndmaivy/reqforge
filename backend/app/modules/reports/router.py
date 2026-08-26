@@ -12,7 +12,7 @@ from app.modules.reports.schemas import BaselineResponse, BaselineSummary, Proje
 from app.modules.reports.service import ReportService
 
 project_router = APIRouter(prefix="/projects/{project_id}", tags=["Reports"])
-router = APIRouter(prefix="/baselines", tags=["Reports"])
+router = APIRouter(tags=["Reports"])
 
 
 @project_router.get(
@@ -55,29 +55,36 @@ def list_baselines(
     return DataResponse(data=[service.baseline_summary(baseline) for baseline in baselines])
 
 
-@router.get(
-    "/{baseline_id}", response_model=DataResponse[BaselineResponse], summary="Get a baseline"
+@project_router.get(
+    "/baselines/{baseline_id}",
+    response_model=DataResponse[BaselineResponse],
+    summary="Get a baseline",
 )
 def get_baseline(
+    project_id: UUID,
     baseline_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> DataResponse[BaselineResponse]:
     service = ReportService(session)
-    baseline = service.get_baseline(baseline_id, current_user.id)
+    baseline = service.get_baseline(project_id, baseline_id, current_user.id)
     return DataResponse(data=service.baseline_response(baseline))
 
 
-@router.get(
-    "/{baseline_id}/requirements.csv", summary="Export approved baseline requirements as CSV"
+@project_router.get(
+    "/baselines/{baseline_id}/requirements.csv",
+    summary="Export approved baseline requirements as CSV",
 )
 def export_baseline_requirements_csv(
+    project_id: UUID,
     baseline_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> Response:
     service = ReportService(session)
-    content, filename = service.requirements_csv(service.get_baseline(baseline_id, current_user.id))
+    content, filename = service.requirements_csv(
+        service.get_baseline(project_id, baseline_id, current_user.id)
+    )
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",

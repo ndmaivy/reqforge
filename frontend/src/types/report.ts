@@ -1,6 +1,11 @@
 export interface ReportProjectSummary {
   id: string;
   name: string;
+  product_name: string | null;
+  goal: string | null;
+  target_users: string[];
+  platform: string | null;
+  main_features: string[];
   generated_at: string;
   feedback_coverage_start: string | null;
   feedback_coverage_end: string | null;
@@ -29,6 +34,7 @@ export interface ProjectReport {
   approved_requirement_set: ApprovedRequirement[];
   traceability_matrix: TraceabilityRow[];
   outstanding_issues: OutstandingIssue[];
+  consistency_findings: OutstandingConsistencyFinding[];
 }
 
 export interface KeyUserNeed {
@@ -48,6 +54,11 @@ export interface ApprovedRequirement {
   type: string;
   status: string;
   generated_by: string;
+  source_type: string;
+  source_reference: string | null;
+  review_note: string | null;
+  acknowledged_outdated_validation: boolean;
+  acknowledged_open_high_issues: boolean;
   confidence: string | number | null;
   source_needs: Array<{ id: string; title: string }>;
   supporting_feedback_ids: string[];
@@ -78,11 +89,25 @@ export interface OutstandingIssue {
   created_at: string;
 }
 
+export interface OutstandingConsistencyFinding {
+  id: string;
+  finding_type: string;
+  severity: string;
+  status: string;
+  need_id: string | null;
+  requirement_id: string | null;
+  description: string;
+  suggestion: string | null;
+  confidence: string | number | null;
+  created_at: string;
+}
+
 export interface BaselineSummary {
   id: string;
   project_id: string;
   version: number;
   created_at: string;
+  created_by_id: string | null;
 }
 
 export interface Baseline extends BaselineSummary {

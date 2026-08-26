@@ -11,9 +11,7 @@ from app.db.models.mixins import CreatedAtMixin
 
 class NeedRequirementLink(CreatedAtMixin, Base):
     __tablename__ = "need_requirement_links"
-    __table_args__ = (
-        Index("ix_need_requirement_links_requirement_id", "requirement_id"),
-    )
+    __table_args__ = (Index("ix_need_requirement_links_requirement_id", "requirement_id"),)
 
     need_id: Mapped[UUID] = mapped_column(ForeignKey("user_needs.id"), primary_key=True)
     requirement_id: Mapped[UUID] = mapped_column(ForeignKey("requirements.id"), primary_key=True)

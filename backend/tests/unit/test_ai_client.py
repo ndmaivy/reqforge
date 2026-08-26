@@ -44,9 +44,7 @@ def valid_provider_response(feedback_id) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "choices": [
-                {"message": {"content": json.dumps(valid_feedback_output(feedback_id))}}
-            ]
+            "choices": [{"message": {"content": json.dumps(valid_feedback_output(feedback_id))}}]
         },
     )
 
@@ -214,9 +212,7 @@ def test_invalid_json_response_retries_then_succeeds(caplog):
             )
         return valid_provider_response(feedback_id)
 
-    client = OpenAICompatibleClient(
-        real_settings(llm_max_retries=1), httpx.MockTransport(handler)
-    )
+    client = OpenAICompatibleClient(real_settings(llm_max_retries=1), httpx.MockTransport(handler))
     try:
         with caplog.at_level(logging.WARNING, logger="app.ai.client"):
             output = asyncio.run(client.analyze_feedback({"feedback": []}))
@@ -241,9 +237,7 @@ def test_invalid_json_response_exhausts_retries(caplog):
             headers={"content-type": "text/plain", "content-length": "8"},
         )
 
-    client = OpenAICompatibleClient(
-        real_settings(llm_max_retries=1), httpx.MockTransport(handler)
-    )
+    client = OpenAICompatibleClient(real_settings(llm_max_retries=1), httpx.MockTransport(handler))
     try:
         with caplog.at_level(logging.WARNING, logger="app.ai.client"):
             with pytest.raises(AIProviderError, match="invalid JSON response"):
@@ -264,11 +258,7 @@ def test_invalid_structured_response_retries_once_then_fails():
         request_count += 1
         return httpx.Response(
             200,
-            json={
-                "choices": [
-                    {"message": {"content": json.dumps({"feedback_results": []})}}
-                ]
-            },
+            json={"choices": [{"message": {"content": json.dumps({"feedback_results": []})}}]},
         )
 
     client = OpenAICompatibleClient(real_settings(), httpx.MockTransport(handler))
@@ -298,11 +288,7 @@ def test_markdown_json_fence_is_stripped_before_validation():
         }
         return httpx.Response(
             200,
-            json={
-                "choices": [
-                    {"message": {"content": f"```json\n{json.dumps(content)}\n```"}}
-                ]
-            },
+            json={"choices": [{"message": {"content": f"```json\n{json.dumps(content)}\n```"}}]},
         )
 
     client = OpenAICompatibleClient(real_settings(), httpx.MockTransport(handler))
@@ -358,9 +344,7 @@ def test_generation_and_validation_paths_use_their_structured_schemas():
 
     async def execute():
         try:
-            generation = await client.generate_requirements(
-                {"needs": [{"id": str(need_id)}]}
-            )
+            generation = await client.generate_requirements({"needs": [{"id": str(need_id)}]})
             validation = await client.validate_requirement(
                 {"requirement": {"description": "Preserve data after a timeout."}}
             )

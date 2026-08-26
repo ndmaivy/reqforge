@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, Numeric
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -12,7 +12,13 @@ from app.db.models.mixins import CreatedAtMixin
 
 class FeedbackNeedLink(CreatedAtMixin, Base):
     __tablename__ = "feedback_need_links"
-    __table_args__ = (Index("ix_feedback_need_links_need_id", "need_id"),)
+    __table_args__ = (
+        Index("ix_feedback_need_links_need_id", "need_id"),
+        CheckConstraint(
+            "relevance_score IS NULL OR (relevance_score >= 0 AND relevance_score <= 1)",
+            name="ck_feedback_need_relevance_range",
+        ),
+    )
 
     feedback_id: Mapped[UUID] = mapped_column(ForeignKey("feedback.id"), primary_key=True)
     need_id: Mapped[UUID] = mapped_column(ForeignKey("user_needs.id"), primary_key=True)

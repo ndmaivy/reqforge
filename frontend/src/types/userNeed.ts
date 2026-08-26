@@ -1,6 +1,8 @@
 import type { UserNeed } from "../app/data/mockData";
 
 export type UserNeedStatusDto = "CANDIDATE" | "CONFIRMED" | "REJECTED";
+export type NeedTrendGranularity = "WEEK" | "MONTH";
+export type NeedTrendClassification = "NEW" | "RISING" | "FALLING" | "STABLE";
 
 export interface UserNeedDto {
   id: string;
@@ -18,6 +20,7 @@ export interface FeedbackEvidenceDto {
   content: string;
   source: string | null;
   feedback_date: string | null;
+  status: "NEW" | "ANALYZED" | "ARCHIVED";
   relevance_score: number | string | null;
 }
 
@@ -29,6 +32,29 @@ export interface UserNeedDetailDto extends UserNeedDto {
 export interface UserNeedUpdateRequest {
   title?: string;
   description?: string;
+}
+
+export interface NeedTrendBucketDto {
+  period: string;
+  count: number;
+}
+
+export interface NeedTrendSeriesDto {
+  need_id: string;
+  need_title: string;
+  total: number;
+  current_count: number;
+  previous_count: number;
+  delta: number;
+  classification: NeedTrendClassification;
+  buckets: NeedTrendBucketDto[];
+}
+
+export interface NeedTrendResponseDto {
+  granularity: NeedTrendGranularity;
+  date_from: string | null;
+  date_to: string | null;
+  series: NeedTrendSeriesDto[];
 }
 
 export interface UserNeedViewModel extends UserNeed {

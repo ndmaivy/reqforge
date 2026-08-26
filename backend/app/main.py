@@ -13,8 +13,10 @@ from app.core.config import Settings, get_settings
 from app.core.error_handlers import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestIdMiddleware
+from app.core.rate_limit import FixedWindowRateLimiter
 from app.db.session import create_db_engine, create_session_factory
 from app.modules.analysis.dispatcher import AnalysisDispatcher
+from app.modules.analysis.worker import AnalysisWorker
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,8 +32,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.session_factory = session_factory
         app.state.ai_client = ai_client
+        app.state.rate_limiter = FixedWindowRateLimiter()
         app.state.analysis_dispatcher = AnalysisDispatcher(session_factory, ai_client)
+        app.state.analysis_worker = AnalysisWorker(
+            session_factory,
+            app.state.analysis_dispatcher,
+            app_settings.analysis_worker_poll_seconds,
+            app_settings.analysis_stale_seconds,
+        )
+        app.state.analysis_worker.start()
         yield
+        await app.state.analysis_worker.stop()
         await ai_client.close()
         engine.dispose()
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from uuid import uuid4
 
@@ -13,7 +14,14 @@ logger = logging.getLogger(__name__)
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        request_id = request.headers.get("X-Request-ID", str(uuid4()))
+        supplied_request_id = request.headers.get("X-Request-ID", "").strip()
+        request_id = (
+            supplied_request_id
+            if supplied_request_id
+            and len(supplied_request_id) <= 128
+            and re.fullmatch(r"[A-Za-z0-9._:-]+", supplied_request_id)
+            else str(uuid4())
+        )
         request.state.request_id = request_id
         start = time.perf_counter()
         response = await call_next(request)

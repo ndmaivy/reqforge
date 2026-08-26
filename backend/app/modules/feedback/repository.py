@@ -29,6 +29,8 @@ class FeedbackRepository:
         status: FeedbackStatus | None,
         source: str | None,
         category: str | None,
+        user_segment: str | None,
+        is_noise: bool | None,
         search: str | None,
         date_from: datetime | None,
         date_to: datetime | None,
@@ -40,9 +42,20 @@ class FeedbackRepository:
             filters.append(Feedback.source == source)
         if category:
             filters.append(Feedback.category == category)
+        if user_segment:
+            filters.append(Feedback.user_segment == user_segment)
+        if is_noise is not None:
+            filters.append(Feedback.is_noise == is_noise)
         if search:
             pattern = f"%{search.strip()}%"
-            filters.append(or_(Feedback.content.ilike(pattern), Feedback.source.ilike(pattern)))
+            filters.append(
+                or_(
+                    Feedback.content.ilike(pattern),
+                    Feedback.source.ilike(pattern),
+                    Feedback.context.ilike(pattern),
+                    Feedback.notes.ilike(pattern),
+                )
+            )
         if date_from:
             filters.append(Feedback.feedback_date >= date_from)
         if date_to:

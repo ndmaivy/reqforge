@@ -1,22 +1,27 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Enum, ForeignKey, Index, Numeric, Text
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.db.models.enums import IssueSeverity, IssueStatus, RequirementIssueType
-from app.db.models.mixins import CreatedAtMixin
+from app.db.models.mixins import TimestampMixin
 
 
-class RequirementIssue(CreatedAtMixin, Base):
+class RequirementIssue(TimestampMixin, Base):
     __tablename__ = "requirement_issues"
     __table_args__ = (
         Index("ix_requirement_issues_requirement_id", "requirement_id"),
         Index("ix_requirement_issues_issue_type", "issue_type"),
         Index("ix_requirement_issues_status", "status"),
+        CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
+            name="ck_requirement_issues_confidence_range",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -37,6 +42,11 @@ class RequirementIssue(CreatedAtMixin, Base):
         default=IssueStatus.OPEN,
         server_default=IssueStatus.OPEN.value,
     )
+    source_analysis_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("analysis_runs.id", ondelete="SET NULL")
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     requirement: Mapped[Requirement] = relationship(back_populates="issues")
 

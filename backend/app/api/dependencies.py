@@ -21,4 +21,5 @@ def get_current_user(
     user_id = decode_access_token(credentials.credentials, request.app.state.settings)
     return AuthService(session, request.app.state.settings).get_user(user_id)
 
+
 __all__ = ["get_current_user", "get_session"]

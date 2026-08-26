@@ -86,13 +86,11 @@ class StubAIClient(AIClient):
             {"feedback_results": results, "candidate_needs": needs}
         )
 
-    async def generate_requirements(
-        self, context: dict[str, Any]
-    ) -> RequirementGenerationOutput:
+    async def generate_requirements(self, context: dict[str, Any]) -> RequirementGenerationOutput:
         requirements = [
             {
                 "title": f"Support {need['title']}",
-                "description": f"The system shall {need['description'].rstrip('.') }.",
+                "description": f"The system shall {need['description'].rstrip('.')}.",
                 "type": "FUNCTIONAL",
                 "source_need_ids": [need["id"]],
                 "confidence": 0.7,
@@ -101,9 +99,7 @@ class StubAIClient(AIClient):
         ]
         return RequirementGenerationOutput.model_validate({"requirements": requirements})
 
-    async def validate_requirement(
-        self, context: dict[str, Any]
-    ) -> RequirementValidationOutput:
+    async def validate_requirement(self, context: dict[str, Any]) -> RequirementValidationOutput:
         requirement = context["requirement"]
         issues: list[dict[str, Any]] = []
         if len(requirement["description"].split()) < 8:
@@ -147,14 +143,10 @@ class OpenAICompatibleClient(AIClient):
     async def analyze_feedback(self, context: dict[str, Any]) -> FeedbackAnalysisOutput:
         return await self._complete(FEEDBACK_PROMPT, context, FeedbackAnalysisOutput)
 
-    async def generate_requirements(
-        self, context: dict[str, Any]
-    ) -> RequirementGenerationOutput:
+    async def generate_requirements(self, context: dict[str, Any]) -> RequirementGenerationOutput:
         return await self._complete(GENERATION_PROMPT, context, RequirementGenerationOutput)
 
-    async def validate_requirement(
-        self, context: dict[str, Any]
-    ) -> RequirementValidationOutput:
+    async def validate_requirement(self, context: dict[str, Any]) -> RequirementValidationOutput:
         return await self._complete(VALIDATION_PROMPT, context, RequirementValidationOutput)
 
     async def _complete(
@@ -250,9 +242,7 @@ def _strip_json_fence(content: str) -> str:
     return cleaned[first_newline + 1 : -3].strip()
 
 
-def _log_invalid_json_response(
-    response: httpx.Response, attempt: int, max_retries: int
-) -> None:
+def _log_invalid_json_response(response: httpx.Response, attempt: int, max_retries: int) -> None:
     logger.warning(
         "AI provider returned non-JSON HTTP 2xx response",
         extra={

@@ -30,12 +30,14 @@ class AuthService:
         )
         self.repository.create(user)
         try:
+            self.session.flush()
+            response = self._auth_response(user)
             self.session.commit()
         except IntegrityError as exc:
             self.session.rollback()
             raise DuplicateResource("Email is already registered") from exc
         self.session.refresh(user)
-        return self._auth_response(user)
+        return response
 
     def login(self, payload: LoginRequest) -> AuthResponse:
         user = self.repository.get_by_email(payload.email)

@@ -52,6 +52,7 @@ import {
 import type { AnalysisRunDto, FeedbackAnalysisRequest } from "../types/analysis";
 import {
   confirmNeed as confirmNeedRequest,
+  getNeedTrends,
   getNeed as getNeedRequest,
   listNeeds,
   rejectNeed as rejectNeedRequest,
@@ -65,17 +66,23 @@ import type {
 } from "../types/userNeed";
 import {
   approveRequirement as approveRequirementRequest,
+  archiveRequirement as archiveRequirementRequest,
   createRequirement as createRequirementRequest,
+  dismissRequirementIssue,
   getRequirement as getRequirementRequest,
+  getRequirementEvidence,
   listRequirementIssues,
   listRequirements,
   rejectRequirement as rejectRequirementRequest,
+  resolveRequirementIssue,
   updateRequirement as updateRequirementRequest,
 } from "../services/requirements";
 import type {
+  RequirementApprovalRequest,
   RequirementCreateRequest,
   RequirementDetailDto,
   RequirementDto,
+  RequirementEvidenceDto,
   RequirementIssueDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
@@ -108,14 +115,19 @@ function toUiProject(project: ProjectDto): Project {
     name: project.name,
     description: project.description ?? "",
     platform,
-    status: "Active",
+    status: project.status === "ARCHIVED" ? "Archived" : "Active",
     feedbackCount: 0,
     needsCount: 0,
     requirementsCount: 0,
     openIssues: 0,
     updatedAt: project.updated_at.slice(0, 10),
     goal: project.goal ?? undefined,
-    targetUsers: project.target_users ?? undefined,
+    targetUsers: project.target_users.join(", ") || undefined,
+    mainFeatures: project.main_features.join(", ") || undefined,
+    productName: project.product_name ?? undefined,
+    additionalContext: project.additional_context ?? undefined,
+    currentUserRole: project.current_user_role ?? undefined,
+    archivedAt: project.archived_at ?? undefined,
   };
 }
 
@@ -154,7 +166,11 @@ function toUiFeedback(feedback: FeedbackDto): FeedbackItem {
   };
 }
 
-function toUiNeed(need: UserNeedDto, evidenceCount = 0): UserNeedViewModel {
+function toUiNeed(
+  need: UserNeedDto,
+  evidenceCount = 0,
+  trend?: string,
+): UserNeedViewModel {
   const score = need.confidence === null ? null : Number(need.confidence);
   const confidence = score !== null && score >= 0.8
     ? "High"
@@ -172,6 +188,7 @@ function toUiNeed(need: UserNeedDto, evidenceCount = 0): UserNeedViewModel {
     confidenceScore: Number.isFinite(score) ? score : null,
     feedbackIds: [],
     evidenceCount,
+    trend,
   };
 }
 
@@ -215,9 +232,9 @@ function toUiRequirement(
     issueCount,
     sourceNeedId: sourceNeedIds[0],
     sourceNeedIds,
-    sourceType: requirement.generated_by === "AI" ? "AI_FROM_USER_NEED" : "MANUAL",
-    sourceReference: previous?.sourceReference,
-    additionalContext: previous?.additionalContext,
+    sourceType: requirement.source_type,
+    sourceReference: requirement.source_reference ?? undefined,
+    additionalContext: requirement.additional_context ?? undefined,
     createdAt: requirement.created_at,
     updatedAt: requirement.updated_at,
     validationOutdated: "validation_outdated" in requirement
@@ -288,8 +305,23 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     setNeedsLoading(true);
     setNeedsError(null);
     try {
-      const response = await listNeeds(projectId);
-      setAllNeeds(response.data.map((need) => toUiNeed(need)));
+      const [response, trends] = await Promise.all([
+        listNeeds(projectId),
+        getNeedTrends(projectId).catch(() => null),
+      ]);
+      const trendByNeed = new Map(
+        (trends?.series ?? []).map((series) => {
+          const trend = series.classification === "RISING"
+            ? `↑ ${series.delta} this period`
+            : series.classification === "FALLING"
+              ? `↓ ${Math.abs(series.delta)} this period`
+              : series.classification === "NEW"
+                ? "New this period"
+                : "→ Stable";
+          return [series.need_id, trend] as const;
+        }),
+      );
+      setAllNeeds(response.data.map((need) => toUiNeed(need, 0, trendByNeed.get(need.id))));
     } catch (error) {
       setAllNeeds([]);
       setNeedsError(getErrorMessage(error, "Unable to load user needs."));
@@ -362,22 +394,28 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     return result;
   };
 
-  const loadFeedbackDetail = async (feedbackId: string): Promise<FeedbackItem> =>
-    toUiFeedback(await getFeedbackRequest(feedbackId));
+  const loadFeedbackDetail = async (feedbackId: string): Promise<FeedbackItem> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return toUiFeedback(await getFeedbackRequest(activeProject.id, feedbackId));
+  };
 
   const saveFeedback = async (
     feedbackId: string,
     content: string,
     category: FeedbackCategory,
   ): Promise<FeedbackItem> => {
-    const updated = toUiFeedback(await updateFeedbackRequest(feedbackId, { content }));
+    if (!activeProject) throw new Error("No active project selected.");
+    const updated = toUiFeedback(
+      await updateFeedbackRequest(activeProject.id, feedbackId, { content }),
+    );
     const withUiCategory = { ...updated, category };
     setAllFeedback((prev) => prev.map((item) => (item.id === feedbackId ? withUiCategory : item)));
     return withUiCategory;
   };
 
   const archiveFeedback = async (feedbackId: string): Promise<FeedbackItem> => {
-    const archived = toUiFeedback(await archiveFeedbackRequest(feedbackId));
+    if (!activeProject) throw new Error("No active project selected.");
+    const archived = toUiFeedback(await archiveFeedbackRequest(activeProject.id, feedbackId));
     setAllFeedback((prev) => prev.map((item) => (item.id === feedbackId ? archived : item)));
     return archived;
   };
@@ -387,32 +425,42 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     signal?: AbortSignal,
   ): Promise<AnalysisRunDto> => {
     if (!activeProject) throw new Error("No active project selected.");
-    const accepted = await startFeedbackAnalysis(activeProject.id, payload);
-    const run = await pollAnalysisRun(accepted.analysis_run_id, { signal });
+    const projectId = activeProject.id;
+    const accepted = await startFeedbackAnalysis(projectId, payload, crypto.randomUUID());
+    const run = await pollAnalysisRun(projectId, accepted.analysis_run_id, { signal });
     if (run.status === "FAILED") {
       throw new Error(run.error_message || "Feedback analysis failed.");
     }
-    await Promise.all([loadFeedback(activeProject.id), loadNeeds(activeProject.id)]);
+    await Promise.all([loadFeedback(projectId), loadNeeds(projectId)]);
     return run;
   };
 
-  const loadNeedDetail = async (needId: string): Promise<UserNeedDetailDto> =>
-    getNeedRequest(needId);
+  const loadNeedDetail = async (needId: string): Promise<UserNeedDetailDto> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return getNeedRequest(activeProject.id, needId);
+  };
 
   const replaceNeed = (need: UserNeedDto, evidenceCount = 0): UserNeedViewModel => {
-    const mapped = toUiNeed(need, evidenceCount);
+    const previous = allNeeds.find((item) => item.id === need.id);
+    const mapped = toUiNeed(need, evidenceCount || previous?.evidenceCount || 0, previous?.trend);
     setAllNeeds((prev) => prev.map((item) => (item.id === mapped.id ? mapped : item)));
     return mapped;
   };
 
-  const saveNeed = async (needId: string, payload: UserNeedUpdateRequest): Promise<UserNeedViewModel> =>
-    replaceNeed(await updateNeedRequest(needId, payload));
+  const saveNeed = async (needId: string, payload: UserNeedUpdateRequest): Promise<UserNeedViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return replaceNeed(await updateNeedRequest(activeProject.id, needId, payload));
+  };
 
-  const confirmNeed = async (needId: string): Promise<UserNeedViewModel> =>
-    replaceNeed(await confirmNeedRequest(needId));
+  const confirmNeed = async (needId: string): Promise<UserNeedViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return replaceNeed(await confirmNeedRequest(activeProject.id, needId));
+  };
 
-  const rejectNeed = async (needId: string): Promise<UserNeedViewModel> =>
-    replaceNeed(await rejectNeedRequest(needId));
+  const rejectNeed = async (needId: string): Promise<UserNeedViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return replaceNeed(await rejectNeedRequest(activeProject.id, needId));
+  };
 
   const storeRequirement = (requirement: RequirementViewModel): RequirementViewModel => {
     setAllRequirements((prev) => {
@@ -425,8 +473,11 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   };
 
   const loadRequirementDetail = async (requirementId: string): Promise<RequirementViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
     const current = allRequirements.find((item) => item.id === requirementId);
-    return storeRequirement(toUiRequirement(await getRequirementRequest(requirementId), current));
+    return storeRequirement(
+      toUiRequirement(await getRequirementRequest(activeProject.id, requirementId), current),
+    );
   };
 
   const createRequirement = async (
@@ -434,25 +485,46 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   ): Promise<RequirementViewModel> => {
     if (!activeProject) throw new Error("No active project selected.");
     const created = await createRequirementRequest(activeProject.id, payload);
-    return storeRequirement(toUiRequirement(await getRequirementRequest(created.id)));
+    return storeRequirement(
+      toUiRequirement(await getRequirementRequest(activeProject.id, created.id)),
+    );
   };
 
   const saveRequirement = async (
     requirementId: string,
     payload: RequirementUpdateRequest,
   ): Promise<RequirementViewModel> => {
-    await updateRequirementRequest(requirementId, payload);
+    if (!activeProject) throw new Error("No active project selected.");
+    await updateRequirementRequest(activeProject.id, requirementId, payload);
     return loadRequirementDetail(requirementId);
   };
 
-  const approveRequirement = async (requirementId: string): Promise<RequirementViewModel> => {
-    await approveRequirementRequest(requirementId);
+  const approveRequirement = async (
+    requirementId: string,
+    payload: RequirementApprovalRequest,
+  ): Promise<RequirementViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    await approveRequirementRequest(activeProject.id, requirementId, payload);
     return loadRequirementDetail(requirementId);
   };
 
   const rejectRequirement = async (requirementId: string): Promise<RequirementViewModel> => {
-    await rejectRequirementRequest(requirementId);
+    if (!activeProject) throw new Error("No active project selected.");
+    await rejectRequirementRequest(activeProject.id, requirementId);
     return loadRequirementDetail(requirementId);
+  };
+
+  const archiveRequirement = async (requirementId: string): Promise<RequirementViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    await archiveRequirementRequest(activeProject.id, requirementId);
+    return loadRequirementDetail(requirementId);
+  };
+
+  const loadRequirementEvidence = async (
+    requirementId: string,
+  ): Promise<RequirementEvidenceDto> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return getRequirementEvidence(activeProject.id, requirementId);
   };
 
   const generateRequirements = async (
@@ -460,17 +532,35 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     signal?: AbortSignal,
   ): Promise<AnalysisRunDto> => {
     if (!activeProject) throw new Error("No active project selected.");
-    const accepted = await startRequirementGeneration(activeProject.id, { need_ids: needIds });
-    const run = await pollAnalysisRun(accepted.analysis_run_id, { signal });
+    const projectId = activeProject.id;
+    const accepted = await startRequirementGeneration(
+      projectId,
+      { need_ids: needIds },
+      crypto.randomUUID(),
+    );
+    const run = await pollAnalysisRun(projectId, accepted.analysis_run_id, { signal });
     if (run.status === "FAILED") {
       throw new Error(run.error_message || "Requirement generation failed.");
     }
-    await loadRequirements(activeProject.id);
+    await loadRequirements(projectId);
     return run;
   };
 
-  const loadRequirementIssues = async (requirementId: string): Promise<RequirementIssueDto[]> =>
-    listRequirementIssues(requirementId);
+  const loadRequirementIssues = async (requirementId: string): Promise<RequirementIssueDto[]> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return listRequirementIssues(activeProject.id, requirementId);
+  };
+
+  const transitionRequirementIssue = async (
+    requirementId: string,
+    issueId: string,
+    action: "resolve" | "dismiss",
+  ): Promise<RequirementIssueDto> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return action === "resolve"
+      ? resolveRequirementIssue(activeProject.id, requirementId, issueId)
+      : dismissRequirementIssue(activeProject.id, requirementId, issueId);
+  };
 
   const validateRequirement = async (
     requirementId: string,
@@ -480,14 +570,20 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     requirement: RequirementViewModel;
     issues: RequirementIssueDto[];
   }> => {
-    const accepted = await startRequirementValidation(requirementId);
-    const run = await pollAnalysisRun(accepted.analysis_run_id, { signal });
+    if (!activeProject) throw new Error("No active project selected.");
+    const projectId = activeProject.id;
+    const accepted = await startRequirementValidation(
+      projectId,
+      requirementId,
+      crypto.randomUUID(),
+    );
+    const run = await pollAnalysisRun(projectId, accepted.analysis_run_id, { signal });
     if (run.status === "FAILED") {
       throw new Error(run.error_message || "Requirement validation failed.");
     }
     const [detail, issues] = await Promise.all([
-      getRequirementRequest(requirementId),
-      listRequirementIssues(requirementId),
+      getRequirementRequest(projectId, requirementId),
+      listRequirementIssues(projectId, requirementId),
     ]);
     const current = allRequirements.find((item) => item.id === requirementId);
     const requirement = storeRequirement(toUiRequirement(detail, current));
@@ -521,12 +617,16 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   };
 
   const createProject = async (data: CreateProjectFormData): Promise<Project> => {
+    const splitList = (value: string): string[] =>
+      value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean);
     const created = await createProjectRequest({
       name: data.name,
       description: data.description,
       goal: data.goal || null,
-      target_users: data.targetUsers || null,
+      target_users: splitList(data.targetUsers),
       platform: data.platform,
+      main_features: splitList(data.mainFeatures),
+      additional_context: data.context || null,
     });
     const newProj = toUiProject(created);
     setProjects((prev) => [newProj, ...prev]);
@@ -637,6 +737,9 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onSaveNeed={saveNeed}
               onConfirmNeed={confirmNeed}
               onRejectNeed={rejectNeed}
+              onAnalyzeSourceFeedback={async (feedbackIds) => {
+                await analyzeFeedback({ mode: "SELECTED", feedback_ids: feedbackIds });
+              }}
             />
           )}
 
@@ -654,7 +757,10 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onSaveRequirement={saveRequirement}
               onApproveRequirement={approveRequirement}
               onRejectRequirement={rejectRequirement}
+              onArchiveRequirement={archiveRequirement}
               onLoadRequirementIssues={loadRequirementIssues}
+              onLoadRequirementEvidence={loadRequirementEvidence}
+              onTransitionRequirementIssue={transitionRequirementIssue}
               onValidateRequirement={validateRequirement}
               showGenerateModal={showGenerateReqs}
               onCloseGenerateModal={() => setShowGenerateReqs(false)}

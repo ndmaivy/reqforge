@@ -3,7 +3,10 @@ import type { DataResponse } from "./api";
 import type { Baseline, BaselineSummary, ProjectReport } from "../types/report";
 
 const PROJECTS_PATH = "/api/v1/projects";
-const BASELINES_PATH = "/api/v1/baselines";
+
+function projectBaselinesPath(projectId: string): string {
+  return `${PROJECTS_PATH}/${encodeURIComponent(projectId)}/baselines`;
+}
 
 export async function getProjectReport(projectId: string): Promise<ProjectReport> {
   const response = await apiRequest<DataResponse<ProjectReport>>(
@@ -14,7 +17,7 @@ export async function getProjectReport(projectId: string): Promise<ProjectReport
 
 export async function createBaseline(projectId: string): Promise<Baseline> {
   const response = await apiRequest<DataResponse<Baseline>>(
-    `${PROJECTS_PATH}/${encodeURIComponent(projectId)}/baselines`,
+    projectBaselinesPath(projectId),
     { method: "POST" },
   );
   return response.data;
@@ -22,18 +25,20 @@ export async function createBaseline(projectId: string): Promise<Baseline> {
 
 export async function listBaselines(projectId: string): Promise<BaselineSummary[]> {
   const response = await apiRequest<DataResponse<BaselineSummary[]>>(
-    `${PROJECTS_PATH}/${encodeURIComponent(projectId)}/baselines`,
+    projectBaselinesPath(projectId),
   );
   return response.data;
 }
 
-export async function getBaseline(baselineId: string): Promise<Baseline> {
+export async function getBaseline(projectId: string, baselineId: string): Promise<Baseline> {
   const response = await apiRequest<DataResponse<Baseline>>(
-    `${BASELINES_PATH}/${encodeURIComponent(baselineId)}`,
+    `${projectBaselinesPath(projectId)}/${encodeURIComponent(baselineId)}`,
   );
   return response.data;
 }
 
-export async function downloadBaselineCsv(baselineId: string): Promise<void> {
-  await apiDownload(`${BASELINES_PATH}/${encodeURIComponent(baselineId)}/requirements.csv`);
+export async function downloadBaselineCsv(projectId: string, baselineId: string): Promise<void> {
+  await apiDownload(
+    `${projectBaselinesPath(projectId)}/${encodeURIComponent(baselineId)}/requirements.csv`,
+  );
 }

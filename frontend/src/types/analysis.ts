@@ -21,6 +21,7 @@ export interface RequirementGenerationRequest {
 export interface AnalysisAcceptedDto {
   analysis_run_id: string;
   status: AnalysisStatus;
+  reused: boolean;
 }
 
 export interface FeedbackAnalysisOutput {

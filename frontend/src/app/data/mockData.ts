@@ -7,7 +7,7 @@ export type NeedStatus = 'Candidate' | 'Confirmed' | 'Rejected';
 export type ConfidenceLevel = 'High' | 'Medium' | 'Low';
 export type RequirementType = 'Functional' | 'Usability' | 'Interaction' | 'Accessibility' | 'Security' | 'Performance' | 'Non-functional' | 'Other';
 export type RequirementStatus = 'Draft' | 'Needs Review' | 'Approved' | 'Rejected' | 'Archived';
-export type RequirementSourceType = 'AI_FROM_USER_NEED' | 'MANUAL' | 'STAKEHOLDER' | 'POLICY' | 'COMPLIANCE' | 'EXISTING_SPEC' | 'TECHNICAL_CONSTRAINT' | 'OTHER';
+export type RequirementSourceType = 'AI_FROM_USER_NEED' | 'MANUAL' | 'STAKEHOLDER' | 'POLICY' | 'COMPLIANCE' | 'EXISTING_SPECIFICATION' | 'TECHNICAL_CONSTRAINT' | 'OTHER';
 export type IssueType = 'Missing Information' | 'Unsupported Assumption' | 'Intent Drift' | 'Inconsistency';
 export type IssueSeverity = 'High' | 'Medium' | 'Low';
 export type IssueStatus = 'Open' | 'Resolved' | 'Dismissed';
@@ -26,6 +26,10 @@ export interface Project {
   goal?: string;
   targetUsers?: string;
   mainFeatures?: string;
+  productName?: string;
+  additionalContext?: string;
+  currentUserRole?: 'OWNER' | 'EDITOR' | 'VIEWER';
+  archivedAt?: string;
 }
 
 export interface FeedbackItem {
@@ -311,7 +315,7 @@ export const INITIAL_REQUIREMENTS: Requirement[] = [
     status: 'Needs Review',
     confidence: 'High',
     issueCount: 0,
-    sourceType: 'EXISTING_SPEC',
+    sourceType: 'EXISTING_SPECIFICATION',
     sourceReference: 'SLA-2026',
   },
 ];

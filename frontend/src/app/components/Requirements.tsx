@@ -4,7 +4,9 @@ import { toast } from "sonner";
 import type { RequirementStatus, RequirementType, RequirementSourceType, FeedbackItem } from "../data/mockData";
 import type { AnalysisRunDto } from "../../types/analysis";
 import type {
+  RequirementApprovalRequest,
   RequirementCreateRequest,
+  RequirementEvidenceDto,
   RequirementIssueDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
@@ -41,7 +43,7 @@ const sourceCfg: Record<RequirementSourceType, { label: string; bg: string; text
   STAKEHOLDER: { label: "Stakeholder", bg: "#F5F3FF", text: "#6D28D9" },
   POLICY: { label: "Policy", bg: "#FEF2F2", text: "#DC2626" },
   COMPLIANCE: { label: "Compliance", bg: "#FEF3C7", text: "#D97706" },
-  EXISTING_SPEC: { label: "Existing Spec", bg: "#F0FDF4", text: "#15803D" },
+  EXISTING_SPECIFICATION: { label: "Existing Spec", bg: "#F0FDF4", text: "#15803D" },
   TECHNICAL_CONSTRAINT: { label: "Technical Constraint", bg: "#F8FAFC", text: "#475569" },
   OTHER: { label: "Other", bg: "#F8FAFC", text: "#64748B" },
 };
@@ -49,7 +51,7 @@ const sourceCfg: Record<RequirementSourceType, { label: string; bg: string; text
 const REQ_TYPES: RequirementType[] = ["Functional", "Usability", "Interaction", "Accessibility", "Non-functional"];
 const REQ_SOURCE_OPTIONS: { value: RequirementSourceType; label: string }[] = [
   { value: "STAKEHOLDER", label: "Stakeholder Request" },
-  { value: "EXISTING_SPEC", label: "Existing Specification" },
+  { value: "EXISTING_SPECIFICATION", label: "Existing Specification" },
   { value: "POLICY", label: "Security Policy" },
   { value: "COMPLIANCE", label: "Compliance" },
   { value: "TECHNICAL_CONSTRAINT", label: "SLA / Technical Constraint" },
@@ -80,13 +82,16 @@ interface ReqDetailProps {
   needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
   validationIssues: RequirementIssueDto[];
+  evidence: RequirementEvidenceDto | null;
   issuesLoading: boolean;
   issuesError: string | null;
   actionBusy: boolean;
   onBack: () => void;
   onUpdate: (changes: RequirementUpdateRequest) => Promise<boolean>;
-  onApprove: () => Promise<boolean>;
+  onApprove: (payload: RequirementApprovalRequest) => Promise<boolean>;
   onReject: () => Promise<boolean>;
+  onArchive: () => Promise<boolean>;
+  onTransitionIssue: (issueId: string, action: "resolve" | "dismiss") => Promise<void>;
   onRetryIssues: () => Promise<void>;
   onValidate: (signal: AbortSignal) => Promise<AnalysisRunDto>;
 }
@@ -100,6 +105,7 @@ function ReqDetail({
   needs,
   feedback,
   validationIssues,
+  evidence,
   issuesLoading,
   issuesError,
   actionBusy,
@@ -107,6 +113,8 @@ function ReqDetail({
   onUpdate,
   onApprove,
   onReject,
+  onArchive,
+  onTransitionIssue,
   onRetryIssues,
   onValidate,
 }: ReqDetailProps) {
@@ -139,12 +147,15 @@ function ReqDetail({
   const [rejectReason, setRejectReason] = useState("");
   const [rejectNote, setRejectNote] = useState("");
   const [approveWarningOpen, setApproveWarningOpen] = useState(false);
+  const [approvalNote, setApprovalNote] = useState("");
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = useState(false);
 
   // Derived
   const sc = statusCfg[req.status];
   const tc = typeCfg[req.type];
   const sourceNeed = needs.find((n) => n.id === req.sourceNeedId);
-  const supportingFb = feedback.filter((f) => sourceNeed?.feedbackIds.includes(f.id)).slice(0, 3);
+  const evidenceFeedbackIds = new Set(evidence?.feedback.map((item) => item.id) ?? []);
+  const supportingFb = feedback.filter((item) => evidenceFeedbackIds.has(item.id)).slice(0, 3);
   const openHighIssues = validationIssues.filter((issue) => issue.severity === "HIGH" && issue.status === "OPEN");
   const openIssueCount = validationIssues.filter((issue) => issue.status === "OPEN").length;
   const issueCount = validationIssues.length;
@@ -200,15 +211,23 @@ function ReqDetail({
   };
 
   const handleApprove = async () => {
-    if (openHighIssues.length > 0) {
+    if (openHighIssues.length > 0 || req.validationOutdated) {
       setApproveWarningOpen(true);
     } else {
-      if (await onApprove()) toast.success("Requirement approved");
+      if (await onApprove({
+        acknowledge_outdated_validation: false,
+        acknowledge_open_high_issues: false,
+        review_note: approvalNote.trim() || null,
+      })) toast.success("Requirement approved");
     }
   };
 
   const handleApproveAnyway = async () => {
-    if (await onApprove()) {
+    if (await onApprove({
+      acknowledge_outdated_validation: req.validationOutdated,
+      acknowledge_open_high_issues: openHighIssues.length > 0,
+      review_note: approvalNote.trim() || null,
+    })) {
       toast.success("Requirement approved with unresolved validation issue");
       setApproveWarningOpen(false);
     }
@@ -259,6 +278,16 @@ function ReqDetail({
                   style={{ background: "#059669", fontSize: "13px", fontWeight: 500 }}
                 >
                   <CheckCircle size={13} /> {tr.requirements.approve}
+                </button>
+              )}
+              {req.status !== "Archived" && (
+                <button
+                  onClick={() => setArchiveConfirmOpen(true)}
+                  disabled={actionBusy}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", fontSize: "13px", color: "#64748B" }}
+                >
+                  Archive
                 </button>
               )}
               {req.status === "Needs Review" && (
@@ -763,6 +792,26 @@ function ReqDetail({
                                           Confidence: {Math.round(Number(issue.confidence) * 100)}%
                                         </p>
                                       )}
+                                      {!isClosed && (
+                                        <div className="flex gap-2 pt-1">
+                                          <button
+                                            disabled={actionBusy}
+                                            onClick={() => void onTransitionIssue(issue.id, "resolve")}
+                                            className="rounded-md px-2 py-1 text-white disabled:opacity-60"
+                                            style={{ background: "#059669", fontSize: "11px" }}
+                                          >
+                                            Resolve
+                                          </button>
+                                          <button
+                                            disabled={actionBusy}
+                                            onClick={() => void onTransitionIssue(issue.id, "dismiss")}
+                                            className="rounded-md border px-2 py-1 disabled:opacity-60"
+                                            style={{ borderColor: "var(--border)", color: "#64748B", fontSize: "11px" }}
+                                          >
+                                            Dismiss
+                                          </button>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -807,6 +856,11 @@ function ReqDetail({
           width="460px"
         >
           <div className="px-5 py-4 space-y-3">
+            {req.validationOutdated && (
+              <div className="rounded-lg p-3" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E", fontSize: "12.5px" }}>
+                Validation is outdated. Approval requires explicit acknowledgement.
+              </div>
+            )}
             <div className="rounded-lg p-4" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
               <p
                 style={{ fontSize: "12.5px", fontWeight: 600, color: "#DC2626", marginBottom: "8px" }}
@@ -824,6 +878,15 @@ function ReqDetail({
                 ))}
               </ul>
             </div>
+            <textarea
+              value={approvalNote}
+              onChange={(event) => setApprovalNote(event.target.value)}
+              maxLength={2000}
+              rows={3}
+              placeholder="Optional review note"
+              className="w-full rounded-md border px-3 py-2 outline-none"
+              style={{ borderColor: "var(--border)", fontSize: "12.5px" }}
+            />
           </div>
           <div className="flex justify-end gap-2 px-5 pb-5">
             <button
@@ -843,6 +906,17 @@ function ReqDetail({
             </button>
           </div>
         </Modal>
+      )}
+
+      {archiveConfirmOpen && (
+        <ConfirmDialog
+          title="Archive requirement?"
+          message={`"${req.title}" will become read-only.`}
+          confirmLabel="Archive"
+          confirmDanger
+          onConfirm={() => { void onArchive().then((ok) => { if (ok) setArchiveConfirmOpen(false); }); }}
+          onCancel={() => setArchiveConfirmOpen(false)}
+        />
       )}
 
       {/* ── Reject Reason Modal ────────────────────────────────────────────── */}
@@ -932,9 +1006,19 @@ interface RequirementsProps {
   onLoadRequirementDetail: (requirementId: string) => Promise<RequirementViewModel>;
   onCreateRequirement: (payload: RequirementCreateRequest) => Promise<RequirementViewModel>;
   onSaveRequirement: (requirementId: string, payload: RequirementUpdateRequest) => Promise<RequirementViewModel>;
-  onApproveRequirement: (requirementId: string) => Promise<RequirementViewModel>;
+  onApproveRequirement: (
+    requirementId: string,
+    payload: RequirementApprovalRequest,
+  ) => Promise<RequirementViewModel>;
   onRejectRequirement: (requirementId: string) => Promise<RequirementViewModel>;
+  onArchiveRequirement: (requirementId: string) => Promise<RequirementViewModel>;
   onLoadRequirementIssues: (requirementId: string) => Promise<RequirementIssueDto[]>;
+  onLoadRequirementEvidence: (requirementId: string) => Promise<RequirementEvidenceDto>;
+  onTransitionRequirementIssue: (
+    requirementId: string,
+    issueId: string,
+    action: "resolve" | "dismiss",
+  ) => Promise<RequirementIssueDto>;
   onValidateRequirement: (
     requirementId: string,
     signal?: AbortSignal,
@@ -960,7 +1044,10 @@ export function Requirements({
   onSaveRequirement,
   onApproveRequirement,
   onRejectRequirement,
+  onArchiveRequirement,
   onLoadRequirementIssues,
+  onLoadRequirementEvidence,
+  onTransitionRequirementIssue,
   onValidateRequirement,
   showGenerateModal = false,
   onCloseGenerateModal,
@@ -979,6 +1066,7 @@ export function Requirements({
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [busyRequirementId, setBusyRequirementId] = useState<string | null>(null);
   const [validationIssues, setValidationIssues] = useState<RequirementIssueDto[]>([]);
+  const [requirementEvidence, setRequirementEvidence] = useState<RequirementEvidenceDto | null>(null);
   const [issuesLoading, setIssuesLoading] = useState(false);
   const [issuesError, setIssuesError] = useState<string | null>(null);
   const generationControllerRef = useRef<AbortController | null>(null);
@@ -1010,7 +1098,7 @@ export function Requirements({
     if (confFilter !== tr.requirements.allConfidence) list = list.filter((r) => r.confidence === confFilter);
     if (sourceFilter === "AI from User Need") list = list.filter((r) => r.sourceType === "AI_FROM_USER_NEED" || !r.sourceType);
     else if (sourceFilter === "Stakeholder") list = list.filter((r) => r.sourceType === "STAKEHOLDER");
-    else if (sourceFilter === "Existing Specification") list = list.filter((r) => r.sourceType === "EXISTING_SPEC");
+    else if (sourceFilter === "Existing Specification") list = list.filter((r) => r.sourceType === "EXISTING_SPECIFICATION");
     else if (sourceFilter === "Security Policy") list = list.filter((r) => r.sourceType === "POLICY");
     else if (sourceFilter === "Compliance") list = list.filter((r) => r.sourceType === "COMPLIANCE");
     else if (sourceFilter === "SLA / Technical") list = list.filter((r) => r.sourceType === "TECHNICAL_CONSTRAINT");
@@ -1057,6 +1145,9 @@ export function Requirements({
         description: createForm.description.trim(),
         type: toRequirementTypeDto(createForm.type),
         need_ids: createForm.relatedNeedId ? [createForm.relatedNeedId] : [],
+        source_type: createForm.sourceOption || "MANUAL",
+        source_reference: createForm.sourceRef.trim() || null,
+        additional_context: createForm.context.trim() || null,
       });
       setShowCreate(false);
       setCreateForm(emptyCreateForm());
@@ -1074,8 +1165,12 @@ export function Requirements({
     setDetailLoadingId(requirementId);
     const toastId = toast.loading(tr.requirements.detailsLoading);
     try {
-      const detail = await onLoadRequirementDetail(requirementId);
+      const [detail, evidence] = await Promise.all([
+        onLoadRequirementDetail(requirementId),
+        onLoadRequirementEvidence(requirementId),
+      ]);
       setSelected(detail);
+      setRequirementEvidence(evidence);
       setValidationIssues([]);
       setIssuesError(null);
       void refreshIssues(requirementId);
@@ -1122,16 +1217,55 @@ export function Requirements({
     }
   };
 
-  const approve = async (requirementId: string): Promise<boolean> => {
+  const approve = async (
+    requirementId: string,
+    payload: RequirementApprovalRequest,
+  ): Promise<boolean> => {
     if (busyRequirementId) return false;
     setBusyRequirementId(requirementId);
     try {
-      const updated = await onApproveRequirement(requirementId);
+      const updated = await onApproveRequirement(requirementId, payload);
       if (selected?.id === requirementId) setSelected(updated);
       return true;
     } catch (error) {
       toast.error(getErrorMessage(error, tr.requirements.approveError));
       return false;
+    } finally {
+      setBusyRequirementId(null);
+    }
+  };
+
+  const archive = async (requirementId: string): Promise<boolean> => {
+    if (busyRequirementId) return false;
+    setBusyRequirementId(requirementId);
+    try {
+      const updated = await onArchiveRequirement(requirementId);
+      setSelected(updated);
+      return true;
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to archive requirement."));
+      return false;
+    } finally {
+      setBusyRequirementId(null);
+    }
+  };
+
+  const transitionIssue = async (
+    requirementId: string,
+    issueId: string,
+    action: "resolve" | "dismiss",
+  ): Promise<void> => {
+    if (busyRequirementId) return;
+    setBusyRequirementId(requirementId);
+    try {
+      const updated = await onTransitionRequirementIssue(requirementId, issueId, action);
+      setValidationIssues((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setSelected((current) => current?.id === requirementId
+        ? { ...current, issueCount: Math.max(0, current.issueCount - 1) }
+        : current);
+      toast.success(action === "resolve" ? "Issue resolved" : "Issue dismissed");
+    } catch (error) {
+      toast.error(getErrorMessage(error, `Unable to ${action} issue.`));
     } finally {
       setBusyRequirementId(null);
     }
@@ -1159,13 +1293,16 @@ export function Requirements({
         needs={needs}
         feedback={feedback}
         validationIssues={validationIssues}
+        evidence={requirementEvidence}
         issuesLoading={issuesLoading}
         issuesError={issuesError}
         actionBusy={busyRequirementId === selected.id}
-        onBack={() => { setSelected(null); setValidationIssues([]); setIssuesError(null); }}
+        onBack={() => { setSelected(null); setValidationIssues([]); setRequirementEvidence(null); setIssuesError(null); }}
         onUpdate={updateSelected}
-        onApprove={() => approve(selected.id)}
+        onApprove={(payload) => approve(selected.id, payload)}
         onReject={() => reject(selected.id)}
+        onArchive={() => archive(selected.id)}
+        onTransitionIssue={(issueId, action) => transitionIssue(selected.id, issueId, action)}
         onRetryIssues={() => refreshIssues(selected.id)}
         onValidate={validateSelected}
       />

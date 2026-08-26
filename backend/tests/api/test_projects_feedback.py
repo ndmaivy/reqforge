@@ -12,7 +12,7 @@ def create_project(client, name: str = "Hotel Booking") -> dict:
             "name": name,
             "description": "Improve booking UX",
             "goal": "Make hotel discovery easier",
-            "target_users": "Travelers",
+            "target_users": ["Travelers"],
             "platform": "Web",
         },
     )
@@ -26,9 +26,7 @@ def test_health_and_project_crud(client):
 
     project = create_project(client)
     project_id = project["id"]
-    response = client.patch(
-        f"/api/v1/projects/{project_id}", json={"name": "Booking Experience"}
-    )
+    response = client.patch(f"/api/v1/projects/{project_id}", json={"name": "Booking Experience"})
     assert response.status_code == 200
     assert response.json()["data"]["name"] == "Booking Experience"
     assert client.get("/api/v1/projects").json()["meta"]["total"] == 1

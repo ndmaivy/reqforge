@@ -81,7 +81,13 @@ export function Reports({ projectId }: ReportsProps) {
       const baseline = await createBaseline(projectId);
       setSelectedBaseline(baseline);
       setBaselines((current) => [
-        { id: baseline.id, project_id: baseline.project_id, version: baseline.version, created_at: baseline.created_at },
+        {
+          id: baseline.id,
+          project_id: baseline.project_id,
+          version: baseline.version,
+          created_at: baseline.created_at,
+          created_by_id: baseline.created_by_id,
+        },
         ...current,
       ]);
       setShowConfirmation(false);
@@ -96,7 +102,7 @@ export function Reports({ projectId }: ReportsProps) {
   const openBaseline = async (baselineId: string) => {
     setOpeningBaseline(baselineId);
     try {
-      setSelectedBaseline(await getBaseline(baselineId));
+      setSelectedBaseline(await getBaseline(projectId, baselineId));
     } catch (requestError) {
       toast.error(getErrorMessage(requestError, tr.reports.loadError));
     } finally {
@@ -107,7 +113,7 @@ export function Reports({ projectId }: ReportsProps) {
   const exportCsv = async () => {
     if (!selectedBaseline) return;
     try {
-      await downloadBaselineCsv(selectedBaseline.id);
+      await downloadBaselineCsv(projectId, selectedBaseline.id);
     } catch (requestError) {
       toast.error(getErrorMessage(requestError, tr.reports.exportError));
     }
