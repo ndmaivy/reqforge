@@ -134,8 +134,19 @@ class AnalysisDispatcher:
         for batch_start in range(0, len(items), batch_size):
             batch = items[batch_start : batch_start + batch_size]
             existing_needs = list(
-                session.scalars(select(UserNeed).where(UserNeed.project_id == run.project_id))
+                session.scalars(
+                    select(UserNeed).where(
+                        UserNeed.project_id == run.project_id,
+                        UserNeed.status.in_([UserNeedStatus.CANDIDATE, UserNeedStatus.CONFIRMED]),
+                    )
+                )
             )
+            all_project_needs = {
+                need.id: need
+                for need in session.scalars(
+                    select(UserNeed).where(UserNeed.project_id == run.project_id)
+                )
+            }
             context = {
                 "project": self._project_data(project),
                 "feedback": [self._feedback_data(item) for item in batch],
@@ -164,9 +175,25 @@ class AnalysisDispatcher:
                     raise AIOutputValidationError("AI candidate need references unknown feedback")
                 if candidate.matched_existing_need_id:
                     need = needs_by_id.get(candidate.matched_existing_need_id)
-                    if need is None or need.project_id != run.project_id:
+                    referenced_need = all_project_needs.get(candidate.matched_existing_need_id)
+                    if referenced_need is None:
                         raise CrossProjectReferenceError("AI matched a need outside the project")
-                    need_service.link_feedback(need, source_ids)
+                    if need is not None:
+                        need_service.link_feedback(need, source_ids)
+                    else:
+                        # Rejected needs are intentionally excluded from matching. Treat an
+                        # accidental rejected match as an unmatched signal and create a fresh
+                        # candidate instead of reviving or linking the rejected need.
+                        need_service.create_candidate(
+                            run.project_id,
+                            candidate.title,
+                            candidate.description,
+                            source_ids,
+                            Decimal(str(candidate.confidence))
+                            if candidate.confidence is not None
+                            else None,
+                            run.id,
+                        )
                 else:
                     need_service.create_candidate(
                         run.project_id,
@@ -185,9 +212,47 @@ class AnalysisDispatcher:
 
         self._persist_similarity(session, run, items, feedback_results)
 
+        matched_existing = {
+            feedback_id: candidate.matched_existing_need_id
+            for candidate in candidate_needs
+            for feedback_id in candidate.source_feedback_ids
+            if candidate.matched_existing_need_id is not None
+        }
+        linked_rows = list(
+            session.scalars(
+                select(FeedbackNeedLink)
+                .where(FeedbackNeedLink.feedback_id.in_(all_feedback_ids))
+                .order_by(FeedbackNeedLink.created_at.desc())
+            )
+        )
+        latest_link: dict[UUID, FeedbackNeedLink] = {}
+        for link in linked_rows:
+            latest_link.setdefault(link.feedback_id, link)
+        mappings = []
+        for feedback_id in all_feedback_ids:
+            link = latest_link.get(feedback_id)
+            if link is None:
+                mappings.append({"feedback_id": str(feedback_id), "outcome": "NO_NEED"})
+            else:
+                outcome = (
+                    "MATCH_EXISTING"
+                    if matched_existing.get(feedback_id) == link.need_id
+                    else "CREATED_NEW"
+                )
+                mappings.append(
+                    {
+                        "feedback_id": str(feedback_id),
+                        "need_id": str(link.need_id),
+                        "need_title": link.need.title,
+                        "linked_at": link.created_at.isoformat(),
+                        "outcome": outcome,
+                    }
+                )
+
         run.output_json = {
             "feedback_results": [item.model_dump(mode="json") for item in feedback_results],
             "candidate_needs": [item.model_dump(mode="json") for item in candidate_needs],
+            "feedback_mappings": mappings,
         }
 
     async def _generate_requirements(self, session: Session, run: AnalysisRun) -> None:
@@ -302,6 +367,8 @@ class AnalysisDispatcher:
                     description=finding.reason.strip(),
                     evidence=finding.problematic_text,
                     suggestion=finding.suggestion,
+                    suggested_change=finding.suggested_change,
+                    suggested_requirement=finding.suggested_requirement,
                     confidence=(
                         Decimal(str(finding.confidence)) if finding.confidence is not None else None
                     ),

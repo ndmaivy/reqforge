@@ -162,5 +162,16 @@ export async function apiDownload(path: string): Promise<void> {
 }
 
 export function getErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  const message = error instanceof Error ? error.message : "";
+  const normalized = message.toLowerCase();
+  if (normalized.includes("aiprovider") || normalized.includes("ai provider") || normalized.includes("invalid response")) {
+    return "Dịch vụ AI trả về kết quả không hợp lệ. Vui lòng thử lại.";
+  }
+  if (normalized.includes("timeout") || normalized.includes("timed out")) {
+    return "Tác vụ mất quá nhiều thời gian. Vui lòng kiểm tra lại sau.";
+  }
+  if (normalized.includes("network") || normalized.includes("cannot connect")) {
+    return "Không thể kết nối đến máy chủ. Vui lòng thử lại.";
+  }
+  return message || fallback;
 }

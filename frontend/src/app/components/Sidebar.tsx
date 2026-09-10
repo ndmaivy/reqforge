@@ -26,7 +26,7 @@ export function GlobalSidebar({ onGoToProjects, user }: GlobalSidebarProps) {
   const { tr } = useLanguage();
   return (
     <aside
-      className="w-56 shrink-0 flex flex-col h-full border-r"
+      className="w-64 shrink-0 flex flex-col h-full border-r"
       style={{ background: "var(--sidebar)", borderColor: "var(--sidebar-border)" }}
     >
       <Logo />
@@ -34,8 +34,7 @@ export function GlobalSidebar({ onGoToProjects, user }: GlobalSidebarProps) {
       <nav className="flex-1 px-3 py-4 space-y-0.5">
         <SectionLabel>{tr.nav.navigation}</SectionLabel>
         <NavBtn icon={FolderOpen} label={tr.nav.allProjects} active onClick={onGoToProjects} />
-        <NavBtn icon={Settings} label={tr.nav.settings} onClick={() => {}} />
-        <NavBtn icon={HelpCircle} label={tr.nav.helpDocs} onClick={() => {}} />
+        <p className="px-2 py-2 text-[11px] text-slate-400">{tr.nav.helpDocs}: {tr.common.notAvailable}</p>
       </nav>
 
       <UserFooter user={user} />
@@ -99,7 +98,7 @@ export function Sidebar({
 
   return (
     <aside
-      className="w-56 shrink-0 flex flex-col h-full border-r"
+      className="w-64 shrink-0 flex flex-col h-full border-r"
       style={{ background: "var(--sidebar)", borderColor: "var(--sidebar-border)" }}
     >
       <Logo />
@@ -221,7 +220,7 @@ export function Sidebar({
 
         <div className="pt-3">
           <SectionLabel>{tr.nav.system}</SectionLabel>
-          <NavBtn icon={HelpCircle} label={tr.nav.helpDocs} onClick={() => {}} />
+          <p className="px-2 py-2 text-[11px] text-slate-400">{tr.nav.helpDocs}: {tr.common.notAvailable}</p>
         </div>
       </nav>
 
@@ -282,7 +281,7 @@ function NavBtn({ icon: Icon, label, active = false, badge, onClick }: NavBtnPro
     >
       <div className="flex items-center gap-2.5">
         <Icon size={14} strokeWidth={active ? 2.5 : 2} />
-        <span style={{ fontSize: "13px", fontWeight: active ? 600 : 400 }}>{label}</span>
+        <span className="whitespace-nowrap" style={{ fontSize: "13px", fontWeight: active ? 600 : 400 }}>{label}</span>
       </div>
       {badge !== undefined && badge > 0 && (
         <span

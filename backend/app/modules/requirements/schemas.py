@@ -67,6 +67,19 @@ class RequirementApprovalRequest(BaseModel):
     review_note: str | None = Field(default=None, max_length=2_000)
 
 
+class RequirementRevisionSuggestionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issue_ids: list[UUID] = Field(min_length=1, max_length=20)
+
+
+class RequirementRevisionSuggestionResponse(BaseModel):
+    current_requirement: str
+    suggested_requirement: str
+    addressed_issues: list[UUID]
+    conflict: str | None = None
+
+
 class RequirementResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -101,6 +114,8 @@ class RequirementIssueResponse(BaseModel):
     description: str
     evidence: str | None
     suggestion: str | None
+    suggested_change: str | None
+    suggested_requirement: str | None
     confidence: Decimal | None
     status: IssueStatus
     source_analysis_run_id: UUID | None

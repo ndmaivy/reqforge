@@ -81,6 +81,19 @@ export function Analysis({ requirements, issues, needs, feedback, runs, onRunCon
 
   const severityColors: Record<string, string> = { High: "#DC2626", Medium: "#D97706", Low: "#059669" };
   const latestRun = runs[0];
+  const analysisTypeLabels: Record<string, string> = {
+    FEEDBACK_ANALYSIS: tr.analysis.feedbackAnalysis,
+    NEED_EXTRACTION: tr.analysis.needExtraction,
+    REQUIREMENT_GENERATION: tr.analysis.requirementGeneration,
+    REQUIREMENT_VALIDATION: tr.analysis.requirementValidation,
+    CONSISTENCY_CHECK: tr.analysis.consistencyCheck,
+  };
+  const analysisStatusLabels: Record<string, string> = {
+    COMPLETED: tr.analysis.completed,
+    FAILED: tr.analysis.failed,
+    PENDING: tr.analysis.pending,
+    RUNNING: tr.analysis.running,
+  };
 
   const runConsistency = async () => {
     if (runningConsistency) return;
@@ -109,14 +122,14 @@ export function Analysis({ requirements, issues, needs, feedback, runs, onRunCon
               <Sparkles size={12} style={{ color: "#1E3A8A" }} />
               <span style={{ fontSize: "12.5px", color: "#1E3A8A", fontWeight: 500 }}>{latestRun ? `Updated ${new Date(latestRun.created_at).toLocaleString()}` : "No analysis runs yet"}</span>
             </div>
-            {!readOnly && <button onClick={() => void runConsistency()} disabled={runningConsistency} className="flex items-center gap-1.5 rounded-md bg-blue-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{runningConsistency ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />} Check consistency</button>}
+            {!readOnly && <button onClick={() => void runConsistency()} disabled={runningConsistency} className="flex items-center gap-1.5 rounded-md bg-blue-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">{runningConsistency ? <Loader size={12} className="animate-spin" /> : <Sparkles size={12} />} {tr.analysis.checkConsistency}</button>}
             <SimpleSelect value={scope} options={scopeOptions} onChange={(v) => { setScope(v); setActiveTab("issues"); }} />
           </div>
         </div>
 
         <div className="mb-5 rounded-lg border" style={{ background: "var(--card)", borderColor: "var(--border)" }}>
-          <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)" }}><h3 className="text-sm font-semibold">Analysis run history</h3></div>
-          {runs.length ? <div className="divide-y">{runs.slice(0, 8).map((run) => <div key={run.id} className="grid grid-cols-[1.5fr_1fr_1fr_1fr] items-center gap-3 px-4 py-3 text-xs"><span className="font-medium">{run.analysis_type.replace(/_/g, " ")}</span><span className={run.status === "FAILED" ? "text-red-600" : run.status === "COMPLETED" ? "text-emerald-700" : "text-amber-700"}>{run.status}</span><span className="truncate text-slate-500">{run.model || "—"}</span><span className="text-right text-slate-500">{new Date(run.created_at).toLocaleString()}</span></div>)}</div> : <p className="px-4 py-6 text-center text-xs text-slate-500">No analysis runs for this project.</p>}
+          <div className="border-b px-4 py-3" style={{ borderColor: "var(--border)" }}><h3 className="text-sm font-semibold">{tr.analysis.runHistory}</h3></div>
+          {runs.length ? <div className="divide-y">{runs.slice(0, 8).map((run) => <div key={run.id} className="grid grid-cols-[1.5fr_1fr_1fr_1fr] items-center gap-3 px-4 py-3 text-xs"><span className="font-medium">{analysisTypeLabels[run.analysis_type] ?? run.analysis_type}</span><span className={run.status === "FAILED" ? "text-red-600" : run.status === "COMPLETED" ? "text-emerald-700" : "text-amber-700"}>{analysisStatusLabels[run.status] ?? run.status}</span><span className="truncate text-slate-500">{run.model || "—"}</span><span className="text-right text-slate-500">{new Date(run.created_at).toLocaleString()}</span></div>)}</div> : <p className="px-4 py-6 text-center text-xs text-slate-500">{tr.analysis.noRuns}</p>}
         </div>
 
         {/* Scope-specific context banner */}

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.db.models import FeedbackNeedLink, UserNeed
+from app.db.models import Feedback, FeedbackNeedLink, UserNeed
 from app.db.models.enums import UserNeedStatus
 
 
@@ -38,7 +38,18 @@ class UserNeedRepository:
             filters.append(UserNeed.status == status)
         if search:
             pattern = f"%{search.strip()}%"
-            filters.append(UserNeed.title.ilike(pattern) | UserNeed.description.ilike(pattern))
+            filters.append(
+                UserNeed.title.ilike(pattern)
+                | UserNeed.description.ilike(pattern)
+                | exists(
+                    select(FeedbackNeedLink.feedback_id)
+                    .join(Feedback, Feedback.id == FeedbackNeedLink.feedback_id)
+                    .where(
+                        FeedbackNeedLink.need_id == UserNeed.id,
+                        Feedback.content.ilike(pattern),
+                    )
+                )
+            )
         statement = select(UserNeed).where(*filters).order_by(UserNeed.created_at.desc())
         items = list(
             self.session.scalars(statement.offset((page - 1) * page_size).limit(page_size))

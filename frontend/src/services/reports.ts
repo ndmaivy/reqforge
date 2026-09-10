@@ -23,6 +23,14 @@ export async function createBaseline(projectId: string): Promise<Baseline> {
   return response.data;
 }
 
+export async function createNamedBaseline(projectId: string, name: string, notes: string): Promise<Baseline> {
+  const response = await apiRequest<DataResponse<Baseline>>(projectBaselinesPath(projectId), {
+    method: "POST",
+    body: JSON.stringify({ name, notes: notes || null }),
+  });
+  return response.data;
+}
+
 export async function listBaselines(projectId: string): Promise<BaselineSummary[]> {
   const response = await apiRequest<DataResponse<BaselineSummary[]>>(
     projectBaselinesPath(projectId),
@@ -41,4 +49,12 @@ export async function downloadBaselineCsv(projectId: string, baselineId: string)
   await apiDownload(
     `${projectBaselinesPath(projectId)}/${encodeURIComponent(baselineId)}/requirements.csv`,
   );
+}
+
+export async function downloadProjectReportDocx(projectId: string): Promise<void> {
+  await apiDownload(`${PROJECTS_PATH}/${encodeURIComponent(projectId)}/report.docx`);
+}
+
+export async function downloadBaselineReportDocx(projectId: string, baselineId: string): Promise<void> {
+  await apiDownload(`${projectBaselinesPath(projectId)}/${encodeURIComponent(baselineId)}/report.docx`);
 }

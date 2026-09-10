@@ -19,7 +19,7 @@ class FeedbackAnalysisMode(StrEnum):
 class FeedbackAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    feedback_ids: list[UUID] | None = Field(default=None, max_length=200)
+    feedback_ids: list[UUID] | None = Field(default=None, max_length=10)
     mode: FeedbackAnalysisMode = FeedbackAnalysisMode.NEW_ONLY
 
     @model_validator(mode="after")

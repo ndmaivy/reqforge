@@ -38,6 +38,10 @@ class UserNeedResponse(BaseModel):
     confidence: Decimal | None
     created_at: datetime
     updated_at: datetime
+    evidence_count: int = 0
+    new_evidence_count: int = 0
+    latest_evidence_at: datetime | None = None
+    requirement_count: int = 0
 
 
 class FeedbackEvidence(BaseModel):
@@ -47,11 +51,18 @@ class FeedbackEvidence(BaseModel):
     feedback_date: datetime | None
     status: FeedbackStatus
     relevance_score: Decimal | None
+    linked_at: datetime
+    is_new: bool = False
 
 
 class UserNeedDetailResponse(UserNeedResponse):
     supporting_feedback: list[FeedbackEvidence]
     evidence_count: int
+
+
+class EvidenceReviewResponse(BaseModel):
+    need_id: UUID
+    last_reviewed_at: datetime
 
 
 class TrendGranularity(StrEnum):

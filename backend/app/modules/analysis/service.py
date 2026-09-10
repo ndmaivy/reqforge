@@ -42,6 +42,7 @@ from app.modules.requirements.service import RequirementService
 
 
 class AnalysisService:
+    MAX_FEEDBACK_PER_ANALYSIS = 10
     def __init__(self, session: Session, ai_client: AIClient) -> None:
         self.session = session
         self.ai_client = ai_client
@@ -75,6 +76,7 @@ class AnalysisService:
         max_attempts: int,
     ):
         self.projects.get(project_id, user_id, ProjectRole.EDITOR)
+        batch_size = min(batch_size, self.MAX_FEEDBACK_PER_ANALYSIS)
         request_data = payload.model_dump(mode="json")
         existing = self._existing_or_none(
             project_id,
@@ -94,11 +96,16 @@ class AnalysisService:
                         Feedback.status == FeedbackStatus.NEW,
                     )
                     .order_by(Feedback.created_at, Feedback.id)
-                    .limit(200)
+                    .limit(self.MAX_FEEDBACK_PER_ANALYSIS)
                 )
             )
         else:
             feedback_ids = list(dict.fromkeys(payload.feedback_ids or []))
+            if len(feedback_ids) > self.MAX_FEEDBACK_PER_ANALYSIS:
+                raise InvalidStateTransition(
+                    "A single analysis can include at most "
+                    f"{self.MAX_FEEDBACK_PER_ANALYSIS} feedback records"
+                )
             items = list(
                 self.session.scalars(select(Feedback).where(Feedback.id.in_(feedback_ids)))
             )
@@ -108,8 +115,8 @@ class AnalysisService:
                 raise CrossProjectReferenceError(
                     "All selected feedback must belong to the requested project"
                 )
-            if any(item.status is FeedbackStatus.ARCHIVED for item in items):
-                raise InvalidStateTransition("Archived feedback cannot be analyzed")
+            if any(item.status is not FeedbackStatus.NEW for item in items):
+                raise InvalidStateTransition("Only new feedback can be analyzed")
         if not feedback_ids:
             raise EmptyAnalysisInput("No feedback is available for analysis")
         run = self.repository.create(

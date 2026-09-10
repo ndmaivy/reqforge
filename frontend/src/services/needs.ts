@@ -46,6 +46,17 @@ export async function getNeed(projectId: string, needId: string): Promise<UserNe
   return response.data;
 }
 
+export async function markNeedEvidenceReviewed(projectId: string, needId: string): Promise<void> {
+  await apiRequest<DataResponse<{ need_id: string; last_reviewed_at: string }>>(
+    `${projectNeedsPath(projectId)}/${encodeURIComponent(needId)}/evidence/mark-reviewed`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteNeed(projectId: string, needId: string): Promise<void> {
+  await apiRequest<void>(`${projectNeedsPath(projectId)}/${encodeURIComponent(needId)}`, { method: "DELETE" });
+}
+
 export async function updateNeed(
   projectId: string,
   needId: string,

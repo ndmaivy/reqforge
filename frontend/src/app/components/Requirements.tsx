@@ -8,6 +8,7 @@ import type {
   RequirementCreateRequest,
   RequirementEvidenceDto,
   RequirementIssueDto,
+  RequirementRevisionSuggestionDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
   RequirementViewModel,
@@ -38,17 +39,32 @@ const typeCfg: Record<RequirementType, { bg: string; text: string }> = {
 };
 
 const sourceCfg: Record<RequirementSourceType, { label: string; bg: string; text: string }> = {
-  AI_FROM_USER_NEED: { label: "AI from User Need", bg: "#EFF6FF", text: "#1E3A8A" },
-  MANUAL: { label: "Manual", bg: "#F1F5F9", text: "#64748B" },
-  STAKEHOLDER: { label: "Stakeholder", bg: "#F5F3FF", text: "#6D28D9" },
-  POLICY: { label: "Policy", bg: "#FEF2F2", text: "#DC2626" },
-  COMPLIANCE: { label: "Compliance", bg: "#FEF3C7", text: "#D97706" },
-  EXISTING_SPECIFICATION: { label: "Existing Spec", bg: "#F0FDF4", text: "#15803D" },
-  TECHNICAL_CONSTRAINT: { label: "Technical Constraint", bg: "#F8FAFC", text: "#475569" },
-  OTHER: { label: "Other", bg: "#F8FAFC", text: "#64748B" },
+  AI_FROM_USER_NEED: { label: "AI từ nhu cầu người dùng", bg: "#EFF6FF", text: "#1E3A8A" },
+  MANUAL: { label: "Thủ công", bg: "#F1F5F9", text: "#64748B" },
+  STAKEHOLDER: { label: "Yêu cầu bên liên quan", bg: "#F5F3FF", text: "#6D28D9" },
+  POLICY: { label: "Chính sách", bg: "#FEF2F2", text: "#DC2626" },
+  COMPLIANCE: { label: "Tuân thủ", bg: "#FEF3C7", text: "#D97706" },
+  EXISTING_SPECIFICATION: { label: "Đặc tả hiện có", bg: "#F0FDF4", text: "#15803D" },
+  TECHNICAL_CONSTRAINT: { label: "Ràng buộc kỹ thuật", bg: "#F8FAFC", text: "#475569" },
+  OTHER: { label: "Khác", bg: "#F8FAFC", text: "#64748B" },
 };
 
 const REQ_TYPES: RequirementType[] = ["Functional", "Usability", "Interaction", "Accessibility", "Non-functional"];
+
+function issueTypeLabel(type: string, tr: ReturnType<typeof useLanguage>["tr"]): string {
+  const labels: Record<string, string> = {
+    MISSING_INFORMATION: tr.requirements.issueMissingInformation,
+    AMBIGUITY: tr.requirements.issueAmbiguity,
+    INCONSISTENCY: tr.requirements.issueInconsistency,
+    CONFLICT: tr.requirements.issueConflict,
+  };
+  return labels[type] ?? type.replaceAll("_", " ");
+}
+
+function requirementTypeLabel(type: RequirementType, tr: ReturnType<typeof useLanguage>["tr"]): string {
+  const labels: Record<string, string> = { Functional: tr.requirements.typeFunctional, Usability: tr.requirements.typeUsability, Interaction: tr.requirements.typeInteraction, Accessibility: tr.requirements.typeAccessibility, "Non-functional": tr.requirements.typeNonFunctional };
+  return labels[type] ?? type;
+}
 const REQ_SOURCE_OPTIONS: { value: RequirementSourceType; label: string }[] = [
   { value: "STAKEHOLDER", label: "Stakeholder Request" },
   { value: "EXISTING_SPECIFICATION", label: "Existing Specification" },
@@ -91,8 +107,10 @@ interface ReqDetailProps {
   onApprove: (payload: RequirementApprovalRequest) => Promise<boolean>;
   onReject: () => Promise<boolean>;
   onArchive: () => Promise<boolean>;
+  onReopen: () => Promise<boolean>;
   onTransitionIssue: (issueId: string, action: "resolve" | "dismiss") => Promise<void>;
   onRetryIssues: () => Promise<void>;
+  onCreateRevisionSuggestion: (issueIds: string[]) => Promise<RequirementRevisionSuggestionDto>;
   onValidate: (signal: AbortSignal) => Promise<AnalysisRunDto>;
   readOnly: boolean;
 }
@@ -115,8 +133,10 @@ function ReqDetail({
   onApprove,
   onReject,
   onArchive,
+  onReopen,
   onTransitionIssue,
   onRetryIssues,
+  onCreateRevisionSuggestion,
   onValidate,
   readOnly,
 }: ReqDetailProps) {
@@ -134,6 +154,10 @@ function ReqDetail({
   );
   const [validationError, setValidationError] = useState<string | null>(null);
   const [expandedIssues, setExpandedIssues] = useState<Set<string>>(new Set());
+  const [selectedIssueIds, setSelectedIssueIds] = useState<Set<string>>(new Set());
+  const [revisionPreview, setRevisionPreview] = useState<RequirementRevisionSuggestionDto | null>(null);
+  const [revisionDraft, setRevisionDraft] = useState("");
+  const [revisionLoading, setRevisionLoading] = useState(false);
   const validationControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -141,6 +165,8 @@ function ReqDetail({
       req.latestValidationRunId ? (req.validationOutdated ? "outdated" : "complete") : "idle",
     );
   }, [req.id, req.latestValidationRunId, req.validationOutdated]);
+
+  useEffect(() => setSelectedIssueIds(new Set()), [req.id, req.latestValidationRunId]);
 
   useEffect(() => () => validationControllerRef.current?.abort(), []);
 
@@ -196,6 +222,42 @@ function ReqDetail({
     }
   };
 
+  const openRevisionPreview = (result: RequirementRevisionSuggestionDto) => {
+    setRevisionPreview(result);
+    setRevisionDraft(result.suggested_requirement);
+  };
+
+  const applySingleSuggestion = (issue: RequirementIssueDto) => {
+    openRevisionPreview({
+      current_requirement: req.description,
+      suggested_requirement: issue.suggested_requirement || req.description,
+      addressed_issues: [issue.id],
+      conflict: null,
+    });
+  };
+
+  const createBulkRevision = async () => {
+    if (selectedIssueIds.size === 0 || revisionLoading) return;
+    setRevisionLoading(true);
+    try {
+      openRevisionPreview(await onCreateRevisionSuggestion(Array.from(selectedIssueIds)));
+    } catch (error) {
+      toast.error(getErrorMessage(error, tr.requirements.revisionError));
+    } finally {
+      setRevisionLoading(false);
+    }
+  };
+
+  const saveRevision = async () => {
+    if (!revisionPreview || !revisionDraft.trim()) return;
+    const saved = await onUpdate({ description: revisionDraft.trim() });
+    if (!saved) return;
+    setRevisionPreview(null);
+    setSelectedIssueIds(new Set());
+    setValidationStatus("outdated");
+    toast.success(tr.requirements.revisionSaved);
+  };
+
   const handleSave = async () => {
     const saved = await onUpdate({
       title: editTitle.trim(),
@@ -213,7 +275,11 @@ function ReqDetail({
   };
 
   const handleApprove = async () => {
-    if (openHighIssues.length > 0 || req.validationOutdated) {
+    if (req.validationOutdated) {
+      toast.error(tr.requirements.validationOutdatedMsg);
+      return;
+    }
+    if (openHighIssues.length > 0) {
       setApproveWarningOpen(true);
     } else {
       if (await onApprove({
@@ -233,6 +299,10 @@ function ReqDetail({
       toast.success("Requirement approved with unresolved validation issue");
       setApproveWarningOpen(false);
     }
+  };
+
+  const handleReopen = async (): Promise<void> => {
+    if (await onReopen()) toast.success(tr.requirements.reopened);
   };
 
   const handleRejectConfirm = async () => {
@@ -266,13 +336,13 @@ function ReqDetail({
               {tr.nav.requirements}
             </button>
             <ChevronRight size={12} style={{ color: "#CBD5E1" }} />
-            <span style={{ fontSize: "13px", color: "#64748B", fontWeight: 500, fontFamily: "var(--font-mono)" }}>
-              {req.id}
+            <span style={{ fontSize: "13px", color: "#64748B", fontWeight: 500 }}>
+              {tr.requirements.detailBreadcrumb}
             </span>
           </div>
           {!editing && !readOnly && (
             <div className="flex items-center gap-2">
-              {req.status === "Needs Review" && (
+              {req.status === "Needs Review" && !req.validationOutdated && (
                 <button
                   onClick={() => void handleApprove()}
                   disabled={actionBusy}
@@ -282,6 +352,11 @@ function ReqDetail({
                   <CheckCircle size={13} /> {tr.requirements.approve}
                 </button>
               )}
+              {req.status === "Approved" && (
+                <button onClick={() => void handleReopen()} disabled={actionBusy} className="flex items-center gap-2 px-3 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-60" style={{ borderColor: "#BFDBFE", color: "#1D4ED8", fontSize: "13px", fontWeight: 500 }}>
+                  <Edit2 size={12} /> {tr.requirements.reopen}
+                </button>
+              )}
               {req.status !== "Archived" && (
                 <button
                   onClick={() => setArchiveConfirmOpen(true)}
@@ -289,7 +364,7 @@ function ReqDetail({
                   className="flex items-center gap-2 px-3 py-2 rounded-xl border hover:bg-gray-50 disabled:opacity-60"
                   style={{ borderColor: "var(--border)", fontSize: "13px", color: "#64748B" }}
                 >
-                  Archive
+                  {tr.common.archive}
                 </button>
               )}
               {req.status === "Needs Review" && (
@@ -336,7 +411,7 @@ function ReqDetail({
                   className="px-2 py-0.5 rounded-md"
                   style={{ background: tc.bg, color: tc.text, fontSize: "11px", fontWeight: 500 }}
                 >
-                  {req.type}
+                  {requirementTypeLabel(req.type, tr)}
                 </span>
               )}
             </div>
@@ -383,16 +458,16 @@ function ReqDetail({
             {/* Metadata */}
             <div className="space-y-2.5 mb-5">
               {[
-                { label: tr.requirements.type, value: req.type },
+                { label: tr.requirements.type, value: requirementTypeLabel(req.type, tr) },
                 { label: tr.requirements.status, value: (tr.status as Record<string, string>)[req.status] ?? req.status },
-                { label: "Source", value: sourceCfg[req.sourceType ?? 'AI_FROM_USER_NEED']?.label ?? req.sourceType },
+                { label: tr.requirements.sourceLabel, value: sourceCfg[req.sourceType ?? 'AI_FROM_USER_NEED']?.label ?? req.sourceType },
                 ...(req.sourceType === "AI_FROM_USER_NEED" || !req.sourceType ? [{
-                  label: "Source Need",
+                  label: tr.requirements.sourceNeedLabel,
                   value: sourceNeed ? `${sourceNeed.id} — ${sourceNeed.title}` : req.sourceNeedId ?? "—",
                 }] : []),
                 ...(req.sourceReference ? [{ label: "Reference", value: req.sourceReference }] : []),
-                { label: "Created", value: formatRequirementDate(req.createdAt) },
-                { label: "Updated", value: formatRequirementDate(req.updatedAt) },
+                { label: tr.requirements.createdAt, value: formatRequirementDate(req.createdAt) },
+                { label: tr.requirements.updatedAtLabel, value: formatRequirementDate(req.updatedAt) },
               ].map((f) => (
                 <div key={f.label} className="flex items-start gap-3">
                   <span style={{ fontSize: "12px", color: "#94A3B8", width: "90px", flexShrink: 0 }}>{f.label}</span>
@@ -482,7 +557,7 @@ function ReqDetail({
               ) : (
                 <>
                   {/* ── Outdated warning banner (shown at top) ── */}
-                  {validationStatus === "outdated" && (
+                  {validationStatus === "outdated" && req.status !== "Approved" && (
                     <div
                       className="rounded-lg p-4"
                       style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}
@@ -548,19 +623,17 @@ function ReqDetail({
                         </p>
                         <div className="flex items-center justify-between">
                           <p style={{ fontSize: "13px", fontWeight: 600, color: "#1E3A8A" }}>
-                            {validationStatus === "error" ? "Validation failed" : tr.requirements.validationComplete}
+                            {validationStatus === "error" ? tr.requirements.validationFailed : tr.requirements.validationComplete}
                           </p>
                         </div>
                         <p style={{ fontSize: "12px", color: "#1E3A8A", marginTop: "4px" }}>
                           {validationStatus === "error"
                             ? validationError
-                            : issueCount === 0
-                              ? tr.requirements.noIssuesFound
-                              : `${issueCount} issue${issueCount !== 1 ? "s" : ""} detected — ${
+                            : issueCount === 0 ? tr.requirements.noIssuesSummary : `${tr.requirements.issuesSummary(issueCount)} — ${
                                   validationIssues.filter((issue) => issue.severity === "HIGH").length
-                                } High, ${
+                                } ${tr.common.high}, ${
                                   validationIssues.filter((issue) => issue.severity === "MEDIUM").length
-                                } Medium`}
+                                } ${tr.common.medium}`}
                         </p>
                       </div>
 
@@ -589,13 +662,13 @@ function ReqDetail({
                               </div>
                             </div>
                           ) : (
-                            <p style={{ fontSize: "12.5px", color: "#94A3B8" }}>No linked User Need.</p>
+                            <p style={{ fontSize: "12.5px", color: "#94A3B8" }}>{tr.requirements.noLinkedNeed}</p>
                           )}
                         </div>
                       ) : (
                         <div className="rounded-lg p-4" style={{ background: "#F8FAFC", border: "1px solid var(--border)" }}>
                           <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "8px" }}>
-                            Source Information
+                            {tr.requirements.sourceLabel}
                           </p>
                           <div className="space-y-2">
                             <div className="flex items-center gap-2">
@@ -681,14 +754,14 @@ function ReqDetail({
                                   ? { bg: "#FEF3C7", color: "#D97706" }
                                   : { bg: "#EFF6FF", color: "#1E3A8A" };
                               const expanded = expandedIssues.has(issue.id);
-                              const hasMore = !!(issue.suggestion || issue.confidence !== null);
+                              const hasMore = !!(issue.suggestion || issue.suggested_change || issue.suggested_requirement || issue.confidence !== null);
                               const isClosed = issue.status !== "OPEN";
                               const borderColor = isClosed
                                 ? "#E2E8F0"
                                 : issue.severity === "HIGH"
                                 ? "#FCA5A5"
                                 : "#FDE68A";
-                              const severityLabel = issue.severity.charAt(0) + issue.severity.slice(1).toLowerCase();
+                              const severityLabel = issue.severity === "HIGH" ? tr.common.high : issue.severity === "MEDIUM" ? tr.common.medium : tr.common.low;
                               return (
                                 <div
                                   key={issue.id}
@@ -700,6 +773,18 @@ function ReqDetail({
                                   }}
                                 >
                                   <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                    {!readOnly && !isClosed && !req.validationOutdated && issue.source_analysis_run_id === req.latestValidationRunId && (
+                                      <input
+                                        type="checkbox"
+                                        aria-label={issueTypeLabel(issue.issue_type, tr)}
+                                        checked={selectedIssueIds.has(issue.id)}
+                                        onChange={(event) => setSelectedIssueIds((current) => {
+                                          const next = new Set(current);
+                                          if (event.target.checked) next.add(issue.id); else next.delete(issue.id);
+                                          return next;
+                                        })}
+                                      />
+                                    )}
                                     <span
                                       className="px-1.5 py-0.5 rounded"
                                       style={{
@@ -720,7 +805,7 @@ function ReqDetail({
                                         letterSpacing: "0.03em",
                                       }}
                                     >
-                                      {issue.issue_type.replace(/_/g, " ")}
+                                      {issueTypeLabel(issue.issue_type, tr)}
                                     </span>
                                     {isClosed && (
                                       <span
@@ -732,7 +817,7 @@ function ReqDetail({
                                           fontWeight: 600,
                                         }}
                                       >
-                                        {issue.status === "RESOLVED" ? tr.requirements.resolvedBadge : "Dismissed"}
+                                        {issue.status === "RESOLVED" ? tr.requirements.resolvedBadge : tr.requirements.dismissedBadge}
                                       </span>
                                     )}
                                   </div>
@@ -777,6 +862,8 @@ function ReqDetail({
 
                                   {expanded && (
                                     <div className="mt-2 space-y-2">
+                                      {issue.suggested_change && <div className="rounded-md border border-blue-100 bg-blue-50 p-2"><p className="text-[10px] font-semibold uppercase tracking-wide text-blue-800">{tr.requirements.suggestedChange}</p><p className="mt-1 text-xs leading-5 text-blue-900">{issue.suggested_change}</p></div>}
+                                      {issue.suggested_requirement && <div className="rounded-md border border-emerald-100 bg-emerald-50 p-2"><div className="flex items-center justify-between gap-2"><p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">{tr.requirements.suggestedRequirement}</p><button onClick={() => void navigator.clipboard?.writeText(issue.suggested_requirement ?? "")} className="text-[10px] font-semibold text-emerald-800 hover:underline">{tr.requirements.copySuggestion}</button></div><p className="mt-1 text-xs leading-5 text-emerald-900">{issue.suggested_requirement}</p></div>}
                                       {issue.suggestion && (
                                         <p
                                           style={{
@@ -791,18 +878,28 @@ function ReqDetail({
                                       )}
                                       {issue.confidence !== null && (
                                         <p style={{ fontSize: "11.5px", color: "#64748B" }}>
-                                          Confidence: {Math.round(Number(issue.confidence) * 100)}%
+                                          {tr.requirements.confidence}: {Math.round(Number(issue.confidence) * 100)}%
                                         </p>
                                       )}
                                       {!readOnly && !isClosed && (
-                                        <div className="flex gap-2 pt-1">
+                                        <div className="flex gap-2 pt-1 flex-wrap">
+                                          {issue.suggested_requirement && !req.validationOutdated && issue.source_analysis_run_id === req.latestValidationRunId && (
+                                            <button
+                                              disabled={actionBusy}
+                                              onClick={() => applySingleSuggestion(issue)}
+                                              className="rounded-md px-2 py-1 text-white disabled:opacity-60"
+                                              style={{ background: "#1E3A8A", fontSize: "11px" }}
+                                            >
+                                              {tr.requirements.applySuggestion}
+                                            </button>
+                                          )}
                                           <button
                                             disabled={actionBusy}
                                             onClick={() => void onTransitionIssue(issue.id, "resolve")}
                                             className="rounded-md px-2 py-1 text-white disabled:opacity-60"
                                             style={{ background: "#059669", fontSize: "11px" }}
                                           >
-                                            Resolve
+                                            {tr.requirements.resolve}
                                           </button>
                                           <button
                                             disabled={actionBusy}
@@ -810,7 +907,7 @@ function ReqDetail({
                                             className="rounded-md border px-2 py-1 disabled:opacity-60"
                                             style={{ borderColor: "var(--border)", color: "#64748B", fontSize: "11px" }}
                                           >
-                                            Dismiss
+                                            {tr.requirements.dismiss}
                                           </button>
                                         </div>
                                       )}
@@ -819,6 +916,17 @@ function ReqDetail({
                                 </div>
                               );
                             })}
+                          </div>
+                        )}
+                        {selectedIssueIds.size > 0 && (
+                          <div className="sticky bottom-2 z-10 mt-3 flex items-center justify-between gap-2 rounded-lg border bg-white p-3 shadow-md" style={{ borderColor: "#BFDBFE" }}>
+                            <span style={{ fontSize: "12px", fontWeight: 600, color: "#1E3A8A" }}>{tr.requirements.selectedIssues(selectedIssueIds.size)}</span>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => setSelectedIssueIds(new Set())} className="rounded-md border px-2 py-1" style={{ borderColor: "var(--border)", fontSize: "11px" }}>{tr.requirements.clearSelected}</button>
+                              <button onClick={() => void createBulkRevision()} disabled={revisionLoading} className="rounded-md px-2 py-1 text-white disabled:opacity-60" style={{ background: "#1E3A8A", fontSize: "11px" }}>
+                                {revisionLoading ? tr.requirements.generating : tr.requirements.createRevisionFromIssues(selectedIssueIds.size)}
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -850,6 +958,31 @@ function ReqDetail({
         </div>
       </div>
 
+      {revisionPreview && (
+        <Modal title={tr.requirements.revisionPreviewTitle} onClose={() => setRevisionPreview(null)} width="620px">
+          <div className="space-y-4 px-5 py-4">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{tr.requirements.currentRequirement}</p>
+              <p className="rounded-md border bg-slate-50 p-3 text-sm leading-6 text-slate-700">{revisionPreview.current_requirement}</p>
+            </div>
+            {revisionPreview.conflict && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">{tr.requirements.conflictDetected} {revisionPreview.conflict}</div>}
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">{tr.requirements.suggestedRequirement}</p>
+              <textarea value={revisionDraft} onChange={(event) => setRevisionDraft(event.target.value)} rows={5} className="w-full rounded-md border p-3 text-sm leading-6 outline-none" style={{ borderColor: "#A7F3D0" }} />
+              <p className="mt-1 text-[11px] text-slate-500">{tr.requirements.editMore}</p>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-blue-700">{tr.requirements.addressedIssues}</p>
+              <p className="text-xs text-slate-600">{revisionPreview.addressed_issues.length} {tr.requirements.issues.toLowerCase()}</p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 px-5 pb-5">
+            <button onClick={() => setRevisionPreview(null)} className="rounded-md border px-3 py-2 text-xs" style={{ borderColor: "var(--border)" }}>{tr.requirements.cancel}</button>
+            <button onClick={() => void saveRevision()} disabled={!revisionDraft.trim() || actionBusy} className="rounded-md px-3 py-2 text-xs font-medium text-white disabled:opacity-60" style={{ background: "#1E3A8A" }}>{tr.requirements.saveRevision}</button>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Approve Warning Modal ──────────────────────────────────────────── */}
       {approveWarningOpen && (
         <Modal
@@ -858,9 +991,9 @@ function ReqDetail({
           width="460px"
         >
           <div className="px-5 py-4 space-y-3">
-            {req.validationOutdated && (
+                    {req.validationOutdated && req.status !== "Approved" && (
               <div className="rounded-lg p-3" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E", fontSize: "12.5px" }}>
-                Validation is outdated. Approval requires explicit acknowledgement.
+                {tr.requirements.validationOutdatedMsg}
               </div>
             )}
             <div className="rounded-lg p-4" style={{ background: "#FEF2F2", border: "1px solid #FCA5A5" }}>
@@ -914,7 +1047,7 @@ function ReqDetail({
         <ConfirmDialog
           title="Archive requirement?"
           message={`"${req.title}" will become read-only.`}
-          confirmLabel="Archive"
+          confirmLabel={tr.common.archive}
           confirmDanger
           onConfirm={() => { void onArchive().then((ok) => { if (ok) setArchiveConfirmOpen(false); }); }}
           onCancel={() => setArchiveConfirmOpen(false)}
@@ -1014,7 +1147,9 @@ interface RequirementsProps {
   ) => Promise<RequirementViewModel>;
   onRejectRequirement: (requirementId: string) => Promise<RequirementViewModel>;
   onArchiveRequirement: (requirementId: string) => Promise<RequirementViewModel>;
+  onReopenRequirement: (requirementId: string) => Promise<RequirementViewModel>;
   onLoadRequirementIssues: (requirementId: string) => Promise<RequirementIssueDto[]>;
+  onCreateRevisionSuggestion: (requirementId: string, issueIds: string[]) => Promise<RequirementRevisionSuggestionDto>;
   onLoadRequirementEvidence: (requirementId: string) => Promise<RequirementEvidenceDto>;
   onTransitionRequirementIssue: (
     requirementId: string,
@@ -1048,7 +1183,9 @@ export function Requirements({
   onApproveRequirement,
   onRejectRequirement,
   onArchiveRequirement,
+  onReopenRequirement,
   onLoadRequirementIssues,
+  onCreateRevisionSuggestion,
   onLoadRequirementEvidence,
   onTransitionRequirementIssue,
   onValidateRequirement,
@@ -1086,14 +1223,14 @@ export function Requirements({
   const showGen = showGenerateModal || localShowGen;
   const closeGen = () => { setLocalShowGen(false); onCloseGenerateModal?.(); setGenSelected(new Set()); };
 
-  const confirmedNeeds = needs.filter((n) => n.status === "Confirmed");
+  const confirmedNeeds = needs.filter((n) => n.status === "Confirmed" && n.requirementCount === 0);
 
   const filtered = useMemo(() => {
     let list = requirements;
     if (search.trim()) { const q = search.toLowerCase(); list = list.filter((r) => r.title.toLowerCase().includes(q) || r.id.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)); }
     if (statusFilter !== tr.requirements.allStatuses) {
       if (statusFilter === tr.status.Draft) list = list.filter((r) => r.status === "Draft");
-      else if (statusFilter === "Needs Review") list = list.filter((r) => r.status === "Needs Review");
+      else if (statusFilter === tr.requirements.needsReview) list = list.filter((r) => r.status === "Needs Review");
       else if (statusFilter === tr.status.Approved) list = list.filter((r) => r.status === "Approved");
       else if (statusFilter === tr.status.Rejected) list = list.filter((r) => r.status === "Rejected");
       else if (statusFilter === tr.status.Archived) list = list.filter((r) => r.status === "Archived");
@@ -1111,6 +1248,13 @@ export function Requirements({
   }, [requirements, search, statusFilter, typeFilter, confFilter, sourceFilter, tr]);
 
   useEffect(() => { setPage(1); }, [search, statusFilter, typeFilter, confFilter, sourceFilter]);
+  useEffect(() => {
+    const eligible = new Set(confirmedNeeds.map((need) => need.id));
+    setGenSelected((current) => {
+      const next = new Set([...current].filter((id) => eligible.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [confirmedNeeds]);
   useEffect(() => () => generationControllerRef.current?.abort(), []);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -1125,7 +1269,7 @@ export function Requirements({
       await onGenerateRequirements(Array.from(genSelected), controller.signal);
       setGenerating(false);
       closeGen();
-      toast.success(selectedCount === 1 ? "1 candidate requirement generated" : `${selectedCount} candidate requirements generated`);
+      toast.success(tr.requirements.generationCompleted(selectedCount));
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         toast.error(getErrorMessage(error, tr.requirements.generationError));
@@ -1207,6 +1351,22 @@ export function Requirements({
     return result.run;
   };
 
+  const quickValidate = async (requirementId: string): Promise<void> => {
+    if (busyRequirementId || readOnly) return;
+    setBusyRequirementId(requirementId);
+    try {
+      const result = await onValidateRequirement(requirementId);
+      setSelected(result.requirement);
+      setValidationIssues(result.issues);
+      setRequirementEvidence(await onLoadRequirementEvidence(requirementId));
+      toast.success(tr.requirements.validationComplete);
+    } catch (error) {
+      toast.error(getErrorMessage(error, tr.requirements.validationIssuesError));
+    } finally {
+      setBusyRequirementId(null);
+    }
+  };
+
   const updateSelected = async (payload: RequirementUpdateRequest): Promise<boolean> => {
     if (!selected || busyRequirementId) return false;
     setBusyRequirementId(selected.id);
@@ -1216,6 +1376,16 @@ export function Requirements({
     } catch (error) {
       toast.error(getErrorMessage(error, tr.requirements.updateError));
       return false;
+    } finally {
+      setBusyRequirementId(null);
+    }
+  };
+
+  const reopen = async (requirementId: string): Promise<RequirementViewModel> => {
+    if (busyRequirementId) throw new Error("Another requirement action is in progress");
+    setBusyRequirementId(requirementId);
+    try {
+      return await onReopenRequirement(requirementId);
     } finally {
       setBusyRequirementId(null);
     }
@@ -1292,7 +1462,7 @@ export function Requirements({
 
   if (selected) {
     return (
-      <ReqDetail
+            <ReqDetail
         req={selected}
         needs={needs}
         feedback={feedback}
@@ -1306,8 +1476,18 @@ export function Requirements({
         onApprove={(payload) => approve(selected.id, payload)}
         onReject={() => reject(selected.id)}
         onArchive={() => archive(selected.id)}
+        onReopen={async () => {
+          try {
+            setSelected(await reopen(selected.id));
+            return true;
+          } catch (error) {
+            toast.error(getErrorMessage(error, tr.requirements.reopenError));
+            return false;
+          }
+        }}
         onTransitionIssue={(issueId, action) => transitionIssue(selected.id, issueId, action)}
-        onRetryIssues={() => refreshIssues(selected.id)}
+              onRetryIssues={() => refreshIssues(selected.id)}
+              onCreateRevisionSuggestion={(issueIds) => onCreateRevisionSuggestion(selected.id, issueIds)}
         onValidate={validateSelected}
         readOnly={readOnly}
       />
@@ -1350,7 +1530,7 @@ export function Requirements({
             <Search size={13} style={{ color: "#94A3B8" }} />
             <input type="text" placeholder={tr.requirements.search} value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent outline-none flex-1" style={{ fontSize: "13px" }} />
           </div>
-          <SimpleSelect value={statusFilter} options={[tr.requirements.allStatuses, tr.status.Draft, "Needs Review", tr.status.Approved, tr.status.Rejected, tr.status.Archived]} onChange={setStatusFilter} />
+          <SimpleSelect value={statusFilter} options={[tr.requirements.allStatuses, tr.status.Draft, tr.requirements.needsReview, tr.status.Approved, tr.status.Rejected, tr.status.Archived]} onChange={setStatusFilter} />
           <SimpleSelect value={typeFilter} options={[tr.requirements.allTypes, ...REQ_TYPES]} onChange={setTypeFilter} />
           <SimpleSelect value={sourceFilter} options={["All Sources", "AI from User Need", "Stakeholder", "Existing Specification", "Security Policy", "Compliance", "SLA / Technical", "Manual"]} onChange={setSourceFilter} />
           <SimpleSelect value={confFilter} options={[tr.requirements.allConfidence, "High", "Medium", "Low"]} onChange={setConfFilter} />
@@ -1399,7 +1579,7 @@ export function Requirements({
                       <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--foreground)", marginBottom: "2px" }}>{req.title}</p>
                       <p style={{ fontSize: "11.5px", color: "#94A3B8" }} className="line-clamp-1">{req.description}</p>
                     </td>
-                    <td className="px-4 py-3.5"><span className="px-2 py-0.5 rounded-md" style={{ background: tc.bg, color: tc.text, fontSize: "11px", fontWeight: 500 }}>{req.type}</span></td>
+                    <td className="px-4 py-3.5"><span className="px-2 py-0.5 rounded-md" style={{ background: tc.bg, color: tc.text, fontSize: "11px", fontWeight: 500 }}>{requirementTypeLabel(req.type, tr)}</span></td>
                     <td className="px-4 py-3.5">
                       {(() => {
                         const src = sourceCfg[req.sourceType ?? "AI_FROM_USER_NEED"];
@@ -1426,7 +1606,12 @@ export function Requirements({
                       )}
                     </td>
                     <td className="px-4 py-3.5">
-                      {!readOnly && req.status === "Needs Review" && (
+                      {!readOnly && req.status === "Needs Review" && (req.validationOutdated || !req.latestValidationRunId) && (
+                        <button disabled={busyRequirementId !== null} onClick={(e) => { e.stopPropagation(); void quickValidate(req.id); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#1D4ED8" }}>
+                          <Sparkles size={10} /> {req.validationOutdated ? tr.requirements.rerunValidation : tr.requirements.runValidation}
+                        </button>
+                      )}
+                      {!readOnly && req.status === "Needs Review" && !req.validationOutdated && req.latestValidationRunId && (
                         <button disabled={busyRequirementId !== null} onClick={(e) => { e.stopPropagation(); void approve(req.id, { acknowledge_outdated_validation: false, acknowledge_open_high_issues: false }).then((succeeded) => { if (succeeded) toast.success("Requirement approved"); }); }} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-green-50 disabled:opacity-60 transition-colors" style={{ fontSize: "11px", color: "#059669" }}>
                           <CheckCircle size={10} /> {tr.requirements.approve}
                         </button>
@@ -1493,32 +1678,32 @@ export function Requirements({
 
       {/* Generate from User Needs Modal */}
       {showGen && (
-        <Modal title="Generate Candidate Requirements" subtitle="Create candidate software requirements from confirmed User Needs and supporting evidence." onClose={closeGen} width="560px">
+        <Modal title={tr.requirements.generateModalTitle} subtitle={tr.requirements.generateModalSubtitle} onClose={closeGen} width="560px">
           <div className="px-5 py-4">
             {confirmedNeeds.length === 0 ? (
-              <p style={{ fontSize: "13.5px", color: "#64748B", textAlign: "center", padding: "20px 0" }}>No confirmed User Needs available. Confirm needs in the User Needs tab first.</p>
+              <p style={{ fontSize: "13.5px", color: "#64748B", textAlign: "center", padding: "20px 0" }}>{tr.requirements.noConfirmedNeeds}</p>
             ) : (
               <>
                 <div className="flex items-center justify-between mb-3">
-                  <p style={{ fontSize: "12.5px", color: "#64748B" }}>{confirmedNeeds.length} confirmed need{confirmedNeeds.length !== 1 ? "s" : ""} — showing by default</p>
-                  <button onClick={() => setGenSelected(new Set(confirmedNeeds.map((n) => n.id)))} style={{ fontSize: "12.5px", color: "#1E3A8A", fontWeight: 500 }}>Select All</button>
+                  <p style={{ fontSize: "12.5px", color: "#64748B" }}>{tr.requirements.eligibleNeeds(confirmedNeeds.length)}</p>
+                  <button onClick={() => setGenSelected(new Set(confirmedNeeds.map((n) => n.id)))} style={{ fontSize: "12.5px", color: "#1E3A8A", fontWeight: 500 }}>{tr.requirements.selectAll}</button>
                 </div>
                 <div className="space-y-2">
                   {confirmedNeeds.map((need) => {
                     const checked = genSelected.has(need.id);
                     const fbCount = need.evidenceCount;
-                    const alreadyCovered = requirements.some((r) => r.sourceNeedIds.includes(need.id) && r.status !== "Rejected");
+                    const alreadyCovered = need.requirementCount > 0;
                     return (
                       <label key={need.id} className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors" style={{ borderColor: checked ? "#1E3A8A" : "var(--border)", background: checked ? "#EFF6FF" : "#F8FAFC" }}>
                         <input type="checkbox" checked={checked} onChange={() => { const n = new Set(genSelected); checked ? n.delete(need.id) : n.add(need.id); setGenSelected(n); }} className="mt-0.5" />
                         <div className="flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "#64748B" }}>{need.id}</span>
-                            <span style={{ fontSize: "11px", color: "#059669", fontWeight: 500 }}>Confirmed</span>
-                            {alreadyCovered && <span className="px-1.5 py-0 rounded-full" style={{ background: "#ECFDF5", color: "#059669", fontSize: "10px", fontWeight: 600 }}>Has requirement</span>}
+                            <span style={{ fontSize: "11px", color: "#059669", fontWeight: 500 }}>{tr.status.Confirmed}</span>
+                            {alreadyCovered && <span className="px-1.5 py-0 rounded-full" style={{ background: "#ECFDF5", color: "#059669", fontSize: "10px", fontWeight: 600 }}>{tr.requirements.hasRequirement}</span>}
                           </div>
                           <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--foreground)", marginTop: "2px" }}>{need.title}</p>
-                          <p style={{ fontSize: "11.5px", color: "#94A3B8", marginTop: "1px" }}>{fbCount} supporting feedback</p>
+                          <p style={{ fontSize: "11.5px", color: "#94A3B8", marginTop: "1px" }}>{tr.requirements.sourceFeedbackCount(fbCount)}</p>
                         </div>
                       </label>
                     );
@@ -1528,9 +1713,9 @@ export function Requirements({
             )}
           </div>
           <div className="flex justify-end gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
-            <button onClick={closeGen} disabled={generating} className="px-4 py-2 rounded-md border hover:bg-gray-50 disabled:opacity-60" style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>Cancel</button>
+            <button onClick={closeGen} disabled={generating} className="px-4 py-2 rounded-md border hover:bg-gray-50 disabled:opacity-60" style={{ borderColor: "var(--border)", fontSize: "13px", color: "#374151" }}>{tr.common.cancel}</button>
             <button onClick={() => void handleGenerate()} disabled={generating || genSelected.size === 0} className="flex items-center gap-2 px-4 py-2 rounded-2xl text-white hover:opacity-90 disabled:opacity-60" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
-              {generating ? <><Loader size={12} className="animate-spin" /> Generating...</> : <><Sparkles size={12} /> {genSelected.size > 0 ? `Generate ${genSelected.size} Candidate Requirement${genSelected.size !== 1 ? "s" : ""}` : "Generate"}</>}
+              {generating ? <><Loader size={12} className="animate-spin" /> {tr.requirements.generating}</> : <><Sparkles size={12} /> {genSelected.size > 0 ? tr.requirements.generateSelected(genSelected.size) : tr.requirements.generate}</>}
             </button>
           </div>
         </Modal>

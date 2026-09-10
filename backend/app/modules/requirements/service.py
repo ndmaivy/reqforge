@@ -163,6 +163,25 @@ class RequirementService:
         self.session.refresh(requirement)
         return requirement
 
+    def reopen(self, project_id: UUID, requirement_id: UUID, user_id: UUID) -> Requirement:
+        requirement = self.get(
+            requirement_id,
+            project_id=project_id,
+            user_id=user_id,
+            minimum_role=ProjectRole.EDITOR,
+        )
+        if requirement.status is not RequirementStatus.APPROVED:
+            raise InvalidStateTransition("Only approved requirements can be reopened")
+        requirement.status = RequirementStatus.NEEDS_REVIEW
+        requirement.updated_at = datetime.now(UTC)
+        requirement.acknowledged_outdated_validation = False
+        requirement.acknowledged_open_high_issues = False
+        requirement.reviewed_by_id = None
+        requirement.reviewed_at = None
+        self.session.commit()
+        self.session.refresh(requirement)
+        return requirement
+
     def approve(
         self,
         project_id: UUID,
@@ -176,8 +195,8 @@ class RequirementService:
             issue.status is IssueStatus.OPEN and issue.severity is IssueSeverity.HIGH
             for issue in requirement.issues
         )
-        if outdated and not payload.acknowledge_outdated_validation:
-            raise InvalidStateTransition("Outdated validation must be acknowledged")
+        if outdated:
+            raise InvalidStateTransition("Requirement must be revalidated before approval")
         if has_open_high and not payload.acknowledge_open_high_issues:
             raise InvalidStateTransition("Open high-severity issues must be acknowledged")
         requirement.acknowledged_outdated_validation = outdated

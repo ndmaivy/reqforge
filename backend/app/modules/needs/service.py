@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import (
@@ -14,7 +14,13 @@ from app.core.exceptions import (
     InvalidStateTransition,
     NeedNotFound,
 )
-from app.db.models import Feedback, FeedbackNeedLink, UserNeed
+from app.db.models import (
+    Feedback,
+    FeedbackNeedLink,
+    NeedRequirementLink,
+    UserNeed,
+    UserNeedEvidenceReview,
+)
 from app.db.models.enums import ProjectRole, UserNeedStatus
 from app.modules.needs.repository import UserNeedRepository
 from app.modules.needs.schemas import TrendClassification, TrendGranularity, UserNeedUpdate
@@ -52,7 +58,86 @@ class UserNeedService:
         user_id: UUID,
     ) -> tuple[list[UserNeed], int]:
         self.projects.get(project_id, user_id)
-        return self.repository.list(project_id, page, page_size, status, search)
+        needs, total = self.repository.list(project_id, page, page_size, status, search)
+        self._annotate_evidence(needs, user_id)
+        return needs, total
+
+    def mark_evidence_reviewed(self, project_id: UUID, need_id: UUID, user_id: UUID) -> datetime:
+        need = self.get(need_id, project_id=project_id, user_id=user_id)
+        now = datetime.now(UTC)
+        review = self.session.scalar(
+            select(UserNeedEvidenceReview).where(
+                UserNeedEvidenceReview.user_id == user_id,
+                UserNeedEvidenceReview.need_id == need.id,
+            )
+        )
+        if review is None:
+            self.session.add(
+                UserNeedEvidenceReview(user_id=user_id, need_id=need.id, last_reviewed_at=now)
+            )
+        else:
+            review.last_reviewed_at = now
+        self.session.commit()
+        return now
+
+    def evidence_review_timestamp(self, need_id: UUID, user_id: UUID) -> datetime | None:
+        return self.session.scalar(
+            select(UserNeedEvidenceReview.last_reviewed_at).where(
+                UserNeedEvidenceReview.user_id == user_id,
+                UserNeedEvidenceReview.need_id == need_id,
+            )
+        )
+
+    def _annotate_evidence(self, needs: list[UserNeed], user_id: UUID) -> None:
+        if not needs:
+            return
+        need_ids = [need.id for need in needs]
+        counts = dict(
+            self.session.execute(
+                select(FeedbackNeedLink.need_id, func.count())
+                .where(FeedbackNeedLink.need_id.in_(need_ids))
+                .group_by(FeedbackNeedLink.need_id)
+            ).all()
+        )
+        latest_links = dict(
+            self.session.execute(
+                select(FeedbackNeedLink.need_id, func.max(FeedbackNeedLink.created_at))
+                .where(FeedbackNeedLink.need_id.in_(need_ids))
+                .group_by(FeedbackNeedLink.need_id)
+            ).all()
+        )
+        requirement_counts = dict(
+            self.session.execute(
+                select(NeedRequirementLink.need_id, func.count())
+                .where(NeedRequirementLink.need_id.in_(need_ids))
+                .group_by(NeedRequirementLink.need_id)
+            ).all()
+        )
+        reviews = dict(
+            self.session.execute(
+                select(UserNeedEvidenceReview.need_id, UserNeedEvidenceReview.last_reviewed_at)
+                .where(
+                    UserNeedEvidenceReview.user_id == user_id,
+                    UserNeedEvidenceReview.need_id.in_(need_ids),
+                )
+            ).all()
+        )
+        for need in needs:
+            count = int(counts.get(need.id, 0))
+            need.evidence_count = count
+            need.latest_evidence_at = latest_links.get(need.id)
+            need.requirement_count = int(requirement_counts.get(need.id, 0))
+            reviewed_at = reviews.get(need.id)
+            if reviewed_at is None:
+                need.new_evidence_count = count
+            else:
+                new_count = self.session.scalar(
+                    select(func.count()).select_from(FeedbackNeedLink).where(
+                        FeedbackNeedLink.need_id == need.id,
+                        FeedbackNeedLink.created_at > reviewed_at,
+                    )
+                ) or 0
+                need.new_evidence_count = int(new_count)
 
     def update(
         self, project_id: UUID, need_id: UUID, payload: UserNeedUpdate, user_id: UUID
@@ -91,6 +176,18 @@ class UserNeedService:
         self.session.commit()
         self.session.refresh(need)
         return need
+
+    def delete(self, project_id: UUID, need_id: UUID, user_id: UUID) -> None:
+        need = self.get(
+            need_id, project_id=project_id, user_id=user_id, minimum_role=ProjectRole.EDITOR
+        )
+        if need.requirement_links:
+            raise InvalidStateTransition(
+                "Cannot delete a user need that is linked to a requirement"
+            )
+        self.session.execute(delete(FeedbackNeedLink).where(FeedbackNeedLink.need_id == need.id))
+        self.session.delete(need)
+        self.session.commit()
 
     def create_candidate(
         self,

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+# DOCX XML templates intentionally use long single-line literals.
+# ruff: noqa: E501
 import csv
 import re
 from collections import Counter
 from datetime import UTC, datetime
-from io import StringIO
+from io import BytesIO, StringIO
 from uuid import UUID
+from xml.sax.saxutils import escape
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from sqlalchemy.orm import Session
 
@@ -52,7 +56,7 @@ class ReportService:
         project = self.projects.get(project_id, user_id)
         return self._build_report(project)
 
-    def create_baseline(self, project_id: UUID, user_id: UUID) -> RequirementBaseline:
+    def create_baseline(self, project_id: UUID, user_id: UUID, name: str, notes: str | None) -> RequirementBaseline:
         project = self.projects.get(project_id, user_id, ProjectRole.EDITOR)
         report = self._build_report(project)
         if not report.approved_requirement_set:
@@ -63,6 +67,8 @@ class ReportService:
             RequirementBaseline(
                 project_id=project.id,
                 version=self.repository.next_baseline_version(project.id),
+                name=name,
+                notes=notes,
                 snapshot=report.model_dump(mode="json"),
                 created_by_id=user_id,
             )
@@ -89,6 +95,8 @@ class ReportService:
             id=baseline.id,
             project_id=baseline.project_id,
             version=baseline.version,
+            name=baseline.name,
+            notes=baseline.notes,
             created_at=baseline.created_at,
             created_by_id=baseline.created_by_id,
             snapshot=ProjectReport.model_validate(baseline.snapshot),
@@ -148,6 +156,49 @@ class ReportService:
         slug = re.sub(r"[^a-z0-9]+", "-", report.project.name.lower()).strip("-") or "project"
         filename = f"reqforge_{slug}_baseline_v{baseline.version}_requirements.csv"
         return "\ufeff" + output.getvalue(), filename
+
+    def report_docx(self, report: ProjectReport, filename: str) -> tuple[bytes, str]:
+        """Build a small, portable Word document without browser print/screenshot rendering."""
+        def paragraph(text: str = "", style: str | None = None) -> str:
+            style_xml = f'<w:pPr><w:pStyle w:val="{style}"/></w:pPr>' if style else ""
+            return f'<w:p>{style_xml}<w:r><w:t xml:space="preserve">{escape(str(text))}</w:t></w:r></w:p>'
+
+        def table(headers: list[str], rows: list[list[str]]) -> str:
+            parts = ['<w:tbl><w:tblPr><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>']
+            for row_index, row in enumerate([headers, *rows]):
+                parts.append("<w:tr>")
+                for cell in row:
+                    bold = "<w:rPr><w:b/></w:rPr>" if row_index == 0 else ""
+                    parts.append(f'<w:tc><w:p><w:r>{bold}<w:t xml:space="preserve">{escape(str(cell))}</w:t></w:r></w:p></w:tc>')
+                parts.append("</w:tr>")
+            parts.append("</w:tbl>")
+            return "".join(parts)
+
+        body = [paragraph("REQFORGE", "Title"), paragraph("BÁO CÁO YÊU CẦU DỰ ÁN", "Title")]
+        body += [paragraph(report.project.name, "Heading1"), paragraph(f"Ngày tạo báo cáo: {report.project.generated_at:%d/%m/%Y %H:%M}")]
+        body += [paragraph("1. Tổng quan dự án", "Heading1"), paragraph(report.project.goal or "Chưa cập nhật mục tiêu."), paragraph(f"Đối tượng người dùng: {', '.join(report.project.target_users) or 'Chưa cập nhật'}"), paragraph(f"Nền tảng: {report.project.platform or 'Chưa cập nhật'}")]
+        body += [paragraph("2. Tóm tắt", "Heading1"), table(["Chỉ số", "Giá trị"], [["Tổng phản hồi", report.feedback.total], ["Phản hồi đã phân tích", report.feedback.by_status.get("ANALYZED", 0)], ["Nhu cầu đã xác nhận", report.user_needs.confirmed], ["Yêu cầu đã phê duyệt", report.requirements.approved], ["Vấn đề còn mở", report.validation.open_issues]])]
+        body.append(paragraph("3. Nhu cầu người dùng", "Heading1"))
+        for need in report.key_user_needs:
+            body += [paragraph(need.title, "Heading2"), paragraph(need.description), paragraph(f"Độ tin cậy: {need.confidence if need.confidence is not None else 'Chưa xác định'} · {need.supporting_feedback_count} phản hồi nguồn")]
+            if need.supporting_feedback_ids:
+                body.append(paragraph("Feedback nguồn: " + ", ".join(str(item) for item in need.supporting_feedback_ids)))
+        body.append(paragraph("4. Yêu cầu đã duyệt", "Heading1"))
+        for requirement in report.approved_requirement_set:
+            body += [paragraph(requirement.title, "Heading2"), paragraph(requirement.description), paragraph(f"Trạng thái: {requirement.status.value} · Loại: {requirement.type.value}"), paragraph("Nhu cầu nguồn: " + (", ".join(item.title for item in requirement.source_needs) or "Chưa xác định"))]
+        body += [paragraph("5. Traceability", "Heading1"), table(["Yêu cầu", "Nhu cầu", "Feedback"], [[row.requirement_title, row.need_title, ", ".join(str(item) for item in row.supporting_feedback_ids)] for row in report.traceability_matrix])]
+        body += [paragraph("6. Vấn đề còn mở", "Heading1"), table(["Yêu cầu", "Mức độ", "Mô tả"], [[issue.requirement_title, issue.severity.value, issue.description] for issue in report.outstanding_issues] or [["-", "-", "Không có"]])]
+        document = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{"".join(body)}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080"/></w:sectPr></w:body></w:document>'''
+        styles = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:rPr><w:b/><w:sz w:val="32"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:basedOn w:val="Normal"/><w:outlineLvl w:val="0"/><w:rPr><w:b/><w:sz w:val="26"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="Heading 2"/><w:basedOn w:val="Normal"/><w:outlineLvl w:val="1"/><w:rPr><w:b/><w:sz w:val="22"/></w:rPr></w:style></w:styles>'''
+        content_types = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>'''
+        rels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'''
+        output = BytesIO()
+        with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", content_types)
+            archive.writestr("_rels/.rels", rels)
+            archive.writestr("word/document.xml", document)
+            archive.writestr("word/styles.xml", styles)
+        return output.getvalue(), filename
 
     def _build_report(self, project: Project) -> ProjectReport:
         feedback = self.repository.feedback_for_project(project.id)

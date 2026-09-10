@@ -12,7 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import FeedbackNotFound, ImportFileError, InvalidStateTransition
-from app.db.models import Feedback, FeedbackSimilarityLink
+from app.db.models import Feedback, FeedbackNeedLink, FeedbackSimilarityLink
 from app.db.models.enums import FeedbackStatus, ProjectRole
 from app.modules.feedback.normalizer import normalize_feedback_content
 from app.modules.feedback.repository import FeedbackRepository
@@ -84,8 +84,8 @@ class FeedbackService:
         self, project_id: UUID, feedback_id: UUID, payload: FeedbackUpdate, user_id: UUID
     ) -> Feedback:
         feedback = self.get(project_id, feedback_id, user_id, ProjectRole.EDITOR)
-        if feedback.status is FeedbackStatus.ARCHIVED:
-            raise InvalidStateTransition("Archived feedback cannot be edited")
+        if feedback.status is not FeedbackStatus.NEW:
+            raise InvalidStateTransition("Only new feedback can be edited")
         for field, value in payload.model_dump(exclude_unset=True).items():
             if field == "content" and value is not None:
                 value = normalize_feedback_content(value)
@@ -184,6 +184,21 @@ class FeedbackService:
         self.session.commit()
         self.session.refresh(feedback)
         return feedback
+
+    def delete(self, project_id: UUID, feedback_id: UUID, user_id: UUID) -> None:
+        feedback = self.get(project_id, feedback_id, user_id, ProjectRole.EDITOR)
+        if feedback.status is not FeedbackStatus.NEW:
+            raise InvalidStateTransition(
+                "Feedback that has been analyzed or archived cannot be deleted; archive it instead"
+            )
+        if self.session.scalar(
+            select(FeedbackNeedLink).where(FeedbackNeedLink.feedback_id == feedback_id).limit(1)
+        ) is not None:
+            raise InvalidStateTransition(
+                "Feedback used as evidence cannot be deleted; archive it instead"
+            )
+        self.session.delete(feedback)
+        self.session.commit()
 
     def similar(
         self, project_id: UUID, feedback_id: UUID, user_id: UUID

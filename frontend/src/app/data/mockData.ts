@@ -30,6 +30,7 @@ export interface Project {
   additionalContext?: string;
   currentUserRole?: 'OWNER' | 'EDITOR' | 'VIEWER';
   archivedAt?: string;
+  groupedNeeds?: Array<{ needId: string; needTitle: string; linkedAt: string }>;
 }
 
 export interface FeedbackItem {
@@ -40,6 +41,7 @@ export interface FeedbackItem {
   source: FeedbackSource;
   status: FeedbackStatus;
   date: string;
+  createdAt?: string;
   userNeedId?: string;
   isNoise: boolean;
   userSegment?: string;
@@ -49,6 +51,7 @@ export interface FeedbackItem {
   publicFormId?: string;
   submittedById?: string;
   archivedAt?: string;
+  groupedNeeds?: Array<{ needId: string; needTitle: string; linkedAt: string }>;
 }
 
 export interface UserNeed {

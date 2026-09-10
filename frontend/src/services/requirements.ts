@@ -10,6 +10,7 @@ import type {
   RequirementStatusDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
+  RequirementRevisionSuggestionDto,
 } from "../types/requirement";
 
 function projectRequirementsPath(projectId: string): string {
@@ -84,6 +85,18 @@ export async function listRequirementIssues(
   return response.data;
 }
 
+export async function createRequirementRevisionSuggestion(
+  projectId: string,
+  requirementId: string,
+  issueIds: string[],
+): Promise<RequirementRevisionSuggestionDto> {
+  const response = await apiRequest<DataResponse<RequirementRevisionSuggestionDto>>(
+    `${projectRequirementsPath(projectId)}/${encodeURIComponent(requirementId)}/revision-suggestion`,
+    { method: "POST", body: JSON.stringify({ issue_ids: issueIds }) },
+  );
+  return response.data;
+}
+
 async function transitionRequirement(
   projectId: string,
   requirementId: string,
@@ -112,6 +125,14 @@ export const rejectRequirement = (projectId: string, requirementId: string) =>
   transitionRequirement(projectId, requirementId, "reject");
 export const archiveRequirement = (projectId: string, requirementId: string) =>
   transitionRequirement(projectId, requirementId, "archive");
+
+export async function reopenRequirement(projectId: string, requirementId: string): Promise<RequirementDto> {
+  const response = await apiRequest<DataResponse<RequirementDto>>(
+    `${projectRequirementsPath(projectId)}/${encodeURIComponent(requirementId)}/reopen`,
+    { method: "POST" },
+  );
+  return response.data;
+}
 
 async function transitionRequirementIssue(
   projectId: string,

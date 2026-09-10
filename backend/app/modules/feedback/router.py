@@ -4,11 +4,12 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
-from app.db.models import User
+from app.db.models import FeedbackNeedLink, User
 from app.db.models.enums import FeedbackStatus
 from app.modules.feedback.schemas import (
     FeedbackCreate,
@@ -118,7 +119,18 @@ def get_feedback(
     current_user: User = Depends(get_current_user),
 ) -> DataResponse[FeedbackResponse]:
     feedback = FeedbackService(session).get(project_id, feedback_id, current_user.id)
-    return DataResponse(data=FeedbackResponse.model_validate(feedback))
+    response = FeedbackResponse.model_validate(feedback)
+    links = session.scalars(
+        select(FeedbackNeedLink)
+        .where(FeedbackNeedLink.feedback_id == feedback_id)
+        .order_by(FeedbackNeedLink.created_at.desc())
+    ).all()
+    response.grouped_needs = [
+        {"need_id": link.need.id, "need_title": link.need.title, "linked_at": link.created_at}
+        for link in links
+        if link.need.project_id == project_id
+    ]
+    return DataResponse(data=response)
 
 
 @project_router.patch(
@@ -148,6 +160,18 @@ def archive_feedback(
 ) -> DataResponse[FeedbackResponse]:
     feedback = FeedbackService(session).archive(project_id, feedback_id, current_user.id)
     return DataResponse(data=FeedbackResponse.model_validate(feedback))
+
+
+@project_router.delete(
+    "/{feedback_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete unused feedback"
+)
+def delete_feedback(
+    project_id: UUID,
+    feedback_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    FeedbackService(session).delete(project_id, feedback_id, current_user.id)
 
 
 @project_router.get(

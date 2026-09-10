@@ -150,9 +150,16 @@ class BaselineSummary(BaseModel):
     id: UUID
     project_id: UUID
     version: int
+    name: str
+    notes: str | None = None
     created_at: datetime
     created_by_id: UUID | None = None
 
 
 class BaselineResponse(BaselineSummary):
     snapshot: ProjectReport
+
+
+class BaselineCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    notes: str | None = Field(default=None, max_length=5000)

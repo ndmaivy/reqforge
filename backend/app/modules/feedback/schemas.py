@@ -52,6 +52,12 @@ class FeedbackUpdate(BaseModel):
         return value
 
 
+class FeedbackNeedSummary(BaseModel):
+    need_id: UUID
+    need_title: str
+    linked_at: datetime
+
+
 class FeedbackResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,7 +77,7 @@ class FeedbackResponse(BaseModel):
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
-
+    grouped_needs: list[FeedbackNeedSummary] = Field(default_factory=list)
 
 class FeedbackImportResponse(BaseModel):
     imported_count: int

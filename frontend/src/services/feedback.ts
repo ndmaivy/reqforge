@@ -96,3 +96,7 @@ export async function archiveFeedback(
   );
   return response.data;
 }
+
+export async function deleteFeedback(projectId: string, feedbackId: string): Promise<void> {
+  await apiRequest<void>(`${projectFeedbackPath(projectId)}/${encodeURIComponent(feedbackId)}`, { method: "DELETE" });
+}

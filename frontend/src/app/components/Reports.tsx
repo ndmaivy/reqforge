@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, FileText, GitBranch, Printer, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
-  createBaseline,
+  createNamedBaseline,
   downloadBaselineCsv,
+  downloadBaselineReportDocx,
+  downloadProjectReportDocx,
   getBaseline,
   getProjectReport,
   listBaselines,
@@ -39,6 +41,8 @@ export function Reports({ projectId }: ReportsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [baselineName, setBaselineName] = useState("");
+  const [baselineNotes, setBaselineNotes] = useState("");
   const [creating, setCreating] = useState(false);
   const [openingBaseline, setOpeningBaseline] = useState<string | null>(null);
   const locale = lang === "VI" ? "vi-VN" : "en-GB";
@@ -78,7 +82,8 @@ export function Reports({ projectId }: ReportsProps) {
   const createNewBaseline = async () => {
     setCreating(true);
     try {
-      const baseline = await createBaseline(projectId);
+      const nextVersion = (baselines[0]?.version ?? 0) + 1;
+      const baseline = await createNamedBaseline(projectId, baselineName.trim() || `${tr.reports.requirementVersion} ${nextVersion}`, baselineNotes.trim());
       setSelectedBaseline(baseline);
       setBaselines((current) => [
         {
@@ -87,10 +92,14 @@ export function Reports({ projectId }: ReportsProps) {
           version: baseline.version,
           created_at: baseline.created_at,
           created_by_id: baseline.created_by_id,
+          name: baseline.name,
+          notes: baseline.notes,
         },
         ...current,
       ]);
       setShowConfirmation(false);
+      setBaselineName("");
+      setBaselineNotes("");
       toast.success(tr.reports.baselineCreated);
     } catch (requestError) {
       toast.error(getErrorMessage(requestError, tr.reports.createError));
@@ -114,6 +123,15 @@ export function Reports({ projectId }: ReportsProps) {
     if (!selectedBaseline) return;
     try {
       await downloadBaselineCsv(projectId, selectedBaseline.id);
+    } catch (requestError) {
+      toast.error(getErrorMessage(requestError, tr.reports.exportError));
+    }
+  };
+
+  const exportDocx = async () => {
+    try {
+      if (selectedBaseline) await downloadBaselineReportDocx(projectId, selectedBaseline.id);
+      else await downloadProjectReportDocx(projectId);
     } catch (requestError) {
       toast.error(getErrorMessage(requestError, tr.reports.exportError));
     }
@@ -158,11 +176,15 @@ export function Reports({ projectId }: ReportsProps) {
               {tr.reports.projectReport.toUpperCase()}
             </p>
             <h1 style={{ color: "#0F172A", fontSize: "24px", fontWeight: 700 }}>{heading}</h1>
+            {selectedBaseline && <p className="mt-1" style={{ color: "#475569", fontSize: "12.5px" }}>{selectedBaseline.name}{selectedBaseline.notes ? ` · ${selectedBaseline.notes}` : ""}</p>}
             <p className="mt-1" style={{ color: "#64748B", fontSize: "13px" }}>
               {report.project.name} · {tr.reports.generated} {formatDate(report.project.generated_at, locale)}
             </p>
           </div>
           <div className="reqforge-report-actions flex flex-wrap gap-2">
+            <button onClick={() => void exportDocx()} className="flex items-center gap-2 rounded-lg px-3 py-2 text-white" style={{ background: "var(--primary)", fontSize: "12px", fontWeight: 600 }}>
+              <FileText size={14} /> {tr.reports.exportDocx}
+            </button>
             {selectedBaseline && (
               <button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", color: "#334155", fontSize: "12px", fontWeight: 600 }}>
                 <Download size={14} /> {tr.reports.downloadCsv}
@@ -172,7 +194,7 @@ export function Reports({ projectId }: ReportsProps) {
               <Printer size={14} /> {tr.reports.printReport}
             </button>
             {!selectedBaseline && (
-              <button onClick={() => setShowConfirmation(true)} disabled={report.requirements.approved === 0} className="flex items-center gap-2 rounded-lg px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "var(--primary)", fontSize: "12px", fontWeight: 600 }}>
+              <button title={report.requirements.approved === 0 ? tr.reports.baselineEligibility : tr.reports.baselineHelper} onClick={() => setShowConfirmation(true)} disabled={report.requirements.approved === 0} className="flex items-center gap-2 rounded-lg px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50" style={{ background: "var(--primary)", fontSize: "12px", fontWeight: 600 }}>
                 <ShieldCheck size={14} /> {tr.reports.createBaseline}
               </button>
             )}
@@ -186,10 +208,15 @@ export function Reports({ projectId }: ReportsProps) {
 
         {showConfirmation && (
           <section className="reqforge-report-actions rounded-xl border p-4" style={{ background: "#EFF6FF", borderColor: "#BFDBFE" }}>
-            <p style={{ color: "#1E3A8A", fontSize: "13px", fontWeight: 600 }}>{tr.reports.createBaseline}</p>
+            <p style={{ color: "#1E3A8A", fontSize: "13px", fontWeight: 600 }}>{tr.reports.createVersionTitle}</p>
             <p className="mt-1" style={{ color: "#475569", fontSize: "12.5px" }}>{tr.reports.confirmation}</p>
+            <p className="mt-2 text-xs text-slate-600">{tr.reports.nextVersion}: V{(baselines[0]?.version ?? 0) + 1} · {report.requirements.approved} {tr.reports.approvedRequirements} · {formatDate(new Date().toISOString(), locale)}</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="text-xs text-slate-600">{tr.reports.versionName}<input value={baselineName} onChange={(event) => setBaselineName(event.target.value)} placeholder={`${tr.reports.requirementVersion} ${(baselines[0]?.version ?? 0) + 1}`} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" /></label>
+              <label className="text-xs text-slate-600">{tr.reports.notes}<textarea value={baselineNotes} onChange={(event) => setBaselineNotes(event.target.value)} rows={2} className="mt-1 w-full rounded-md border px-3 py-2 text-sm" /></label>
+            </div>
             <div className="mt-3 flex gap-2">
-              <button onClick={() => void createNewBaseline()} disabled={creating} className="rounded-md px-3 py-1.5 text-white disabled:opacity-50" style={{ background: "var(--primary)", fontSize: "12px" }}>
+              <button onClick={() => void createNewBaseline()} disabled={creating || report.requirements.approved === 0} className="rounded-md px-3 py-1.5 text-white disabled:opacity-50" style={{ background: "var(--primary)", fontSize: "12px" }}>
                 {creating ? tr.reports.creating : tr.reports.confirmCreate}
               </button>
               <button onClick={() => setShowConfirmation(false)} className="rounded-md border px-3 py-1.5" style={{ borderColor: "var(--border)", fontSize: "12px", color: "#475569" }}>
@@ -252,7 +279,7 @@ export function Reports({ projectId }: ReportsProps) {
 
         <section className="reqforge-baseline-history rounded-xl border bg-white p-5" style={{ borderColor: "var(--border)" }}>
           <h2 style={{ color: "#0F172A", fontSize: "15px", fontWeight: 700 }}>{tr.reports.baselineHistory}</h2>
-          {baselines.length === 0 ? <p className="mt-3" style={{ color: "#64748B", fontSize: "12.5px" }}>{tr.reports.noBaselines}</p> : <div className="mt-3 space-y-2">{baselines.map((baseline) => <button key={baseline.id} onClick={() => void openBaseline(baseline.id)} className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left hover:bg-slate-50" style={{ borderColor: baseline.id === selectedBaseline?.id ? "#93C5FD" : "#E2E8F0" }}><span style={{ color: "#1E3A8A", fontSize: "12.5px", fontWeight: 650 }}>{tr.reports.baseline} v{baseline.version}</span><span style={{ color: "#64748B", fontSize: "11.5px" }}>{openingBaseline === baseline.id ? tr.reports.loading : formatDate(baseline.created_at, locale)}</span></button>)}</div>}
+          {baselines.length === 0 ? <p className="mt-3" style={{ color: "#64748B", fontSize: "12.5px" }}>{tr.reports.noBaselines}</p> : <div className="mt-3 space-y-2">{baselines.map((baseline) => <button key={baseline.id} onClick={() => void openBaseline(baseline.id)} className="flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left hover:bg-slate-50" style={{ borderColor: baseline.id === selectedBaseline?.id ? "#93C5FD" : "#E2E8F0" }}><span><span className="block" style={{ color: "#1E3A8A", fontSize: "12.5px", fontWeight: 650 }}>V{baseline.version} · {baseline.name}</span><span className="block" style={{ color: "#64748B", fontSize: "11px" }}>{baseline.notes || tr.reports.noNotes}</span></span><span style={{ color: "#64748B", fontSize: "11.5px" }}>{openingBaseline === baseline.id ? tr.reports.loading : formatDate(baseline.created_at, locale)}</span></button>)}</div>}
         </section>
       </div>
     </main>

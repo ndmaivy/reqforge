@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
-from app.db.models import User
+from app.core.exceptions import InvalidStateTransition, RequirementIssueNotFound
+from app.db.models import Project, RequirementIssue, User
 from app.db.models.enums import IssueStatus, RequirementStatus, RequirementType
+from app.modules.analysis.dispatcher import AnalysisDispatcher
 from app.modules.requirements.schemas import (
     FeedbackEvidence,
     NeedEvidence,
@@ -18,6 +21,8 @@ from app.modules.requirements.schemas import (
     RequirementEvidenceResponse,
     RequirementIssueResponse,
     RequirementResponse,
+    RequirementRevisionSuggestionRequest,
+    RequirementRevisionSuggestionResponse,
     RequirementUpdate,
 )
 from app.modules.requirements.service import RequirementService
@@ -108,6 +113,77 @@ def get_requirement(
     )
 
 
+@project_router.post(
+    "/{requirement_id}/revision-suggestion",
+    response_model=DataResponse[RequirementRevisionSuggestionResponse],
+    summary="Create a consolidated requirement revision suggestion",
+)
+async def create_revision_suggestion(
+    project_id: UUID,
+    requirement_id: UUID,
+    payload: RequirementRevisionSuggestionRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DataResponse[RequirementRevisionSuggestionResponse]:
+    service = RequirementService(session)
+    requirement = service.get(
+        requirement_id,
+        with_traceability=True,
+        project_id=project_id,
+        user_id=current_user.id,
+    )
+    outdated, run_id = service.validation_state(requirement)
+    if outdated or run_id is None:
+        raise InvalidStateTransition("A current validation result is required")
+    issues = list(
+        session.scalars(select(RequirementIssue).where(RequirementIssue.id.in_(payload.issue_ids)))
+    )
+    if len(issues) != len(set(payload.issue_ids)) or any(
+        issue.requirement_id != requirement.id
+        or issue.status is not IssueStatus.OPEN
+        or issue.source_analysis_run_id != run_id
+        for issue in issues
+    ):
+        raise RequirementIssueNotFound(
+            "One or more selected issues are not current for this requirement"
+        )
+    project = session.get(Project, project_id)
+    needs = [link.need for link in requirement.need_links]
+    feedback = {
+        link.feedback.id: link.feedback
+        for need in needs
+        for link in need.feedback_links
+    }
+    context = {
+        "project": AnalysisDispatcher._project_data(project),
+        "requirement": AnalysisDispatcher._requirement_data(requirement),
+        "needs": [AnalysisDispatcher._need_data(need) for need in needs],
+        "feedback": [AnalysisDispatcher._feedback_data(item) for item in feedback.values()],
+        "selected_issues": [
+            {
+                "id": str(issue.id),
+                "type": issue.issue_type.value,
+                "severity": issue.severity.value,
+                "description": issue.description,
+                "evidence": issue.evidence,
+                "suggested_change": issue.suggested_change or issue.suggestion,
+                "suggested_requirement": issue.suggested_requirement,
+            }
+            for issue in issues
+        ],
+    }
+    output = await request.app.state.ai_client.create_requirement_revision(context)
+    return DataResponse(
+        data=RequirementRevisionSuggestionResponse(
+            current_requirement=requirement.description,
+            suggested_requirement=output.suggested_requirement,
+            addressed_issues=[issue.id for issue in issues],
+            conflict=output.conflict,
+        )
+    )
+
+
 @project_router.patch(
     "/{requirement_id}",
     response_model=DataResponse[RequirementResponse],
@@ -149,6 +225,21 @@ def approve_requirement(
     requirement = RequirementService(session).approve(
         project_id, requirement_id, payload, current_user.id
     )
+    return DataResponse(data=RequirementResponse.model_validate(requirement))
+
+
+@project_router.post(
+    "/{requirement_id}/reopen",
+    response_model=DataResponse[RequirementResponse],
+    summary="Reopen an approved requirement for editing",
+)
+def reopen_requirement(
+    project_id: UUID,
+    requirement_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DataResponse[RequirementResponse]:
+    requirement = RequirementService(session).reopen(project_id, requirement_id, current_user.id)
     return DataResponse(data=RequirementResponse.model_validate(requirement))
 
 

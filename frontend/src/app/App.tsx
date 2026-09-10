@@ -38,6 +38,7 @@ import {
 import type { ProjectDto, ProjectUpdateRequest } from "../types/project";
 import {
   archiveFeedback as archiveFeedbackRequest,
+  deleteFeedback as deleteFeedbackRequest,
   createFeedback as createFeedbackRequest,
   getFeedback as getFeedbackRequest,
   importFeedback as importFeedbackRequest,
@@ -62,6 +63,8 @@ import {
   getNeedTrends,
   getNeed as getNeedRequest,
   listNeeds,
+  markNeedEvidenceReviewed,
+  deleteNeed,
   rejectNeed as rejectNeedRequest,
   updateNeed as updateNeedRequest,
 } from "../services/needs";
@@ -74,6 +77,7 @@ import type {
 import {
   approveRequirement as approveRequirementRequest,
   archiveRequirement as archiveRequirementRequest,
+  reopenRequirement as reopenRequirementRequest,
   createRequirement as createRequirementRequest,
   dismissRequirementIssue,
   getRequirement as getRequirementRequest,
@@ -83,6 +87,7 @@ import {
   rejectRequirement as rejectRequirementRequest,
   resolveRequirementIssue,
   updateRequirement as updateRequirementRequest,
+  createRequirementRevisionSuggestion as createRequirementRevisionSuggestionRequest,
 } from "../services/requirements";
 import type {
   RequirementApprovalRequest,
@@ -94,6 +99,7 @@ import type {
   RequirementTypeDto,
   RequirementUpdateRequest,
   RequirementViewModel,
+  RequirementRevisionSuggestionDto,
 } from "../types/requirement";
 
 type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports" | "settings";
@@ -179,6 +185,7 @@ function toUiFeedback(feedback: FeedbackDto): FeedbackItem {
           month: "short",
           year: "numeric",
         }).format(parsedDate),
+    createdAt: feedback.created_at,
     isNoise: feedback.is_noise,
     userSegment: feedback.user_segment ?? undefined,
     context: feedback.context ?? undefined,
@@ -186,12 +193,13 @@ function toUiFeedback(feedback: FeedbackDto): FeedbackItem {
     publicFormId: feedback.public_form_id ?? undefined,
     submittedById: feedback.submitted_by_id ?? undefined,
     archivedAt: feedback.archived_at ?? undefined,
+    groupedNeeds: (feedback.grouped_needs ?? []).map((item) => ({ needId: item.need_id, needTitle: item.need_title, linkedAt: item.linked_at })),
   };
 }
 
 function toUiNeed(
   need: UserNeedDto,
-  evidenceCount = 0,
+  evidenceCount = need.evidence_count,
   trend?: string,
 ): UserNeedViewModel {
   const score = need.confidence === null ? null : Number(need.confidence);
@@ -211,6 +219,9 @@ function toUiNeed(
     confidenceScore: Number.isFinite(score) ? score : null,
     feedbackIds: [],
     evidenceCount,
+    newEvidenceCount: need.new_evidence_count,
+    latestEvidenceAt: need.latest_evidence_at,
+    requirementCount: need.requirement_count,
     trend,
   };
 }
@@ -314,11 +325,18 @@ function toUiConsistencyFinding(finding: ConsistencyFindingDto): RequirementIssu
 }
 
 function analysisRunActivity(run: AnalysisRunDto): Activity {
-  const operation = run.analysis_type.toLowerCase().replace(/_/g, " ");
+  const operation: Record<string, string> = {
+    FEEDBACK_ANALYSIS: "Phân tích phản hồi",
+    NEED_EXTRACTION: "Trích xuất nhu cầu",
+    REQUIREMENT_GENERATION: "Tạo yêu cầu",
+    REQUIREMENT_VALIDATION: "Kiểm tra yêu cầu",
+    CONSISTENCY_CHECK: "Kiểm tra tính nhất quán",
+  };
+  const status: Record<string, string> = { COMPLETED: "hoàn tất", FAILED: "thất bại", PENDING: "đang chờ", RUNNING: "đang chạy" };
   return {
     id: run.id,
     projectId: run.project_id,
-    text: `${operation} ${run.status.toLowerCase()}${run.model ? ` with ${run.model}` : ""}`,
+    text: `${operation[run.analysis_type] ?? "Phân tích"} ${status[run.status] ?? "đang xử lý"}${run.model ? ` (${run.model})` : ""}`,
     type: run.status === "FAILED" ? "issue" : run.analysis_type === "FEEDBACK_ANALYSIS" ? "feedback" : run.analysis_type === "REQUIREMENT_GENERATION" || run.analysis_type === "REQUIREMENT_VALIDATION" ? "requirement" : "issue",
     linkedScreen: "analysis",
     date: new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(run.created_at)),
@@ -330,6 +348,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   const [view, setView] = useState<"projects" | "workspace">("projects");
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [activeScreen, setActiveScreen] = useState<Screen>("dashboard");
+  const [destinationNeedId, setDestinationNeedId] = useState<string | null>(null);
 
   // Global data state
   const [projects, setProjects] = useState<Project[]>([]);
@@ -353,6 +372,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   const [showImportFeedback, setShowImportFeedback] = useState(false);
   const [showGenerateReqs, setShowGenerateReqs] = useState(false);
   const [showPublicLinkFromDash, setShowPublicLinkFromDash] = useState(false);
+  const [showAnalyzeFeedback, setShowAnalyzeFeedback] = useState(false);
 
   const loadProjects = useCallback(async () => {
     setProjectsLoading(true);
@@ -401,7 +421,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
           return [series.need_id, trend] as const;
         }),
       );
-      setAllNeeds(response.data.map((need) => toUiNeed(need, 0, trendByNeed.get(need.id))));
+      setAllNeeds(response.data.map((need) => toUiNeed(need, need.evidence_count, trendByNeed.get(need.id))));
     } catch (error) {
       setAllNeeds([]);
       setNeedsError(getErrorMessage(error, "Unable to load user needs."));
@@ -409,6 +429,12 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
       setNeedsLoading(false);
     }
   }, []);
+
+  const searchNeeds = useCallback(async (query: string): Promise<void> => {
+    if (!activeProject) return;
+    const response = await listNeeds(activeProject.id, 1, 100, query ? { search: query } : {});
+    setAllNeeds(response.data.map((need) => toUiNeed(need)));
+  }, [activeProject?.id]);
 
   const loadRequirements = useCallback(async (projectId: string) => {
     setRequirementsLoading(true);
@@ -529,6 +555,12 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     return archived;
   };
 
+  const deleteFeedback = async (feedbackId: string): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    await deleteFeedbackRequest(activeProject.id, feedbackId);
+    setAllFeedback((prev) => prev.filter((item) => item.id !== feedbackId));
+  };
+
   const analyzeFeedback = async (
     payload: FeedbackAnalysisRequest,
     signal?: AbortSignal,
@@ -549,11 +581,31 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     return getNeedRequest(activeProject.id, needId);
   };
 
+  const openNeedFromTraceability = (needId: string) => {
+    setDestinationNeedId(needId);
+    setActiveScreen("user-needs");
+  };
+
   const replaceNeed = (need: UserNeedDto, evidenceCount = 0): UserNeedViewModel => {
     const previous = allNeeds.find((item) => item.id === need.id);
-    const mapped = toUiNeed(need, evidenceCount || previous?.evidenceCount || 0, previous?.trend);
+    const mapped = toUiNeed(need, evidenceCount || need.evidence_count || previous?.evidenceCount || 0, previous?.trend);
+    mapped.newEvidenceCount = need.new_evidence_count ?? previous?.newEvidenceCount ?? 0;
+    mapped.latestEvidenceAt = need.latest_evidence_at ?? previous?.latestEvidenceAt ?? null;
+    mapped.requirementCount = need.requirement_count ?? previous?.requirementCount ?? 0;
     setAllNeeds((prev) => prev.map((item) => (item.id === mapped.id ? mapped : item)));
     return mapped;
+  };
+
+  const markNeedEvidenceRead = async (needId: string): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    await markNeedEvidenceReviewed(activeProject.id, needId);
+    await loadNeeds(activeProject.id);
+  };
+
+  const deleteUserNeed = async (needId: string): Promise<void> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    await deleteNeed(activeProject.id, needId);
+    await loadNeeds(activeProject.id);
   };
 
   const saveNeed = async (needId: string, payload: UserNeedUpdateRequest): Promise<UserNeedViewModel> => {
@@ -629,6 +681,13 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     return loadRequirementDetail(requirementId);
   };
 
+  const reopenRequirement = async (requirementId: string): Promise<RequirementViewModel> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    const updated = toUiRequirement(await reopenRequirementRequest(activeProject.id, requirementId));
+    setAllRequirements((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+    return updated;
+  };
+
   const loadRequirementEvidence = async (
     requirementId: string,
   ): Promise<RequirementEvidenceDto> => {
@@ -658,6 +717,14 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
   const loadRequirementIssues = async (requirementId: string): Promise<RequirementIssueDto[]> => {
     if (!activeProject) throw new Error("No active project selected.");
     return listRequirementIssues(activeProject.id, requirementId);
+  };
+
+  const createRequirementRevisionSuggestion = async (
+    requirementId: string,
+    issueIds: string[],
+  ): Promise<RequirementRevisionSuggestionDto> => {
+    if (!activeProject) throw new Error("No active project selected.");
+    return createRequirementRevisionSuggestionRequest(activeProject.id, requirementId, issueIds);
   };
 
   const transitionRequirementIssue = async (
@@ -746,6 +813,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
     setShowImportFeedback(false);
     setShowGenerateReqs(false);
     setShowPublicLinkFromDash(false);
+    setShowAnalyzeFeedback(false);
   };
 
   const createProject = async (data: CreateProjectFormData): Promise<Project> => {
@@ -852,7 +920,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onNavigate={navigate}
               onOpenAddFeedback={() => { setActiveScreen("feedback"); setShowAddFeedback(true); }}
               onOpenImport={() => { setActiveScreen("feedback"); setShowImportFeedback(true); }}
-              onRunAnalysis={() => { setActiveScreen("feedback"); }}
+              onRunAnalysis={() => { setActiveScreen("feedback"); setShowAnalyzeFeedback(true); }}
               onOpenGenerateReqs={() => { setActiveScreen("requirements"); setShowGenerateReqs(true); }}
               onOpenPublicLink={() => { setActiveScreen("feedback"); setShowPublicLinkFromDash(true); }}
               readOnly={proj.currentUserRole === "VIEWER" || proj.status === "Archived"}
@@ -872,6 +940,8 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onLoadSimilarFeedback={loadSimilarFeedback}
               onSaveFeedback={saveFeedback}
               onArchiveFeedback={archiveFeedback}
+              onDeleteFeedback={deleteFeedback}
+              onOpenNeed={openNeedFromTraceability}
               onAnalyzeFeedback={analyzeFeedback}
               onNavigate={navigate}
               showAddModal={showAddFeedback}
@@ -880,6 +950,8 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onCloseImportModal={() => setShowImportFeedback(false)}
               showPublicLinkModal={showPublicLinkFromDash}
               onClosePublicLinkModal={() => setShowPublicLinkFromDash(false)}
+              showAnalyzeModal={showAnalyzeFeedback}
+              onCloseAnalyzeModal={() => setShowAnalyzeFeedback(false)}
             />
           )}
 
@@ -894,10 +966,12 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onSaveNeed={saveNeed}
               onConfirmNeed={confirmNeed}
               onRejectNeed={rejectNeed}
-              onAnalyzeSourceFeedback={async (feedbackIds) => {
-                await analyzeFeedback({ mode: "SELECTED", feedback_ids: feedbackIds });
-              }}
+              onMarkEvidenceReviewed={markNeedEvidenceRead}
+              onDeleteNeed={deleteUserNeed}
               readOnly={proj.currentUserRole === "VIEWER" || proj.status === "Archived"}
+              destinationNeedId={destinationNeedId}
+              onDestinationHandled={() => setDestinationNeedId(null)}
+              onSearchNeeds={searchNeeds}
             />
           )}
 
@@ -916,7 +990,9 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
               onApproveRequirement={approveRequirement}
               onRejectRequirement={rejectRequirement}
               onArchiveRequirement={archiveRequirement}
+              onReopenRequirement={reopenRequirement}
               onLoadRequirementIssues={loadRequirementIssues}
+              onCreateRevisionSuggestion={createRequirementRevisionSuggestion}
               onLoadRequirementEvidence={loadRequirementEvidence}
               onTransitionRequirementIssue={transitionRequirementIssue}
               onValidateRequirement={validateRequirement}

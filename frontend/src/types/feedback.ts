@@ -17,6 +17,7 @@ export interface FeedbackDto {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  grouped_needs?: Array<{ need_id: string; need_title: string; linked_at: string }>;
 }
 
 export interface FeedbackCreateRequest {

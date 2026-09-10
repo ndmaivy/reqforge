@@ -128,8 +128,18 @@ def test_complete_human_in_the_loop_workflow(client):
             f"/api/v1/projects/{project_id}/requirements/{requirement_id}/approve",
             json={"acknowledge_outdated_validation": True},
         ).status_code
-        == 200
+        == 409
     )
+    validation = client.post(
+        f"/api/v1/projects/{project_id}/analysis/requirements/{requirement_id}/validate",
+        headers=analysis_headers(),
+    )
+    assert validation.status_code == 202
+    wait_run(client, project_id, validation.json()["data"]["analysis_run_id"])
+    assert client.post(
+        f"/api/v1/projects/{project_id}/requirements/{requirement_id}/approve",
+        json={},
+    ).status_code == 200
     assert (
         client.patch(
             f"/api/v1/projects/{project_id}/requirements/{requirement_id}",
@@ -211,16 +221,10 @@ def test_selected_feedback_is_processed_in_bounded_batches_without_record_loss(c
         headers=analysis_headers(),
     )
 
-    assert response.status_code == 202
-    run_id = response.json()["data"]["analysis_run_id"]
-    run = wait_run(client, project_id, run_id)
-    assert run["status"] == "COMPLETED"
-    assert run["input_snapshot"]["batch_size"] == 10
-    assert run["input_snapshot"]["batch_count"] == 2
-    assert batch_client.batch_sizes == [10, 2]
-    assert len(run["output_json"]["feedback_results"]) == 12
+    assert response.status_code == 422
+    assert batch_client.batch_sizes == []
     feedback = client.get(f"/api/v1/projects/{project_id}/feedback").json()["data"]
-    assert {item["id"] for item in feedback if item["status"] == "ANALYZED"} == set(feedback_ids)
+    assert all(item["status"] == "NEW" for item in feedback)
 
 
 def test_failed_feedback_batch_rolls_back_all_batch_changes(client):
@@ -239,10 +243,8 @@ def test_failed_feedback_batch_rolls_back_all_batch_changes(client):
         headers=analysis_headers(),
     )
 
-    run_id = response.json()["data"]["analysis_run_id"]
-    run = wait_run(client, project_id, run_id)
-    assert run["status"] == "FAILED"
-    assert batch_client.batch_sizes == [10, 1]
+    assert response.status_code == 422
+    assert batch_client.batch_sizes == []
     feedback = client.get(f"/api/v1/projects/{project_id}/feedback").json()["data"]
     assert all(item["status"] == "NEW" for item in feedback)
     assert client.get(f"/api/v1/projects/{project_id}/needs").json()["data"] == []

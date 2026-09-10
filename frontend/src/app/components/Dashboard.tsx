@@ -61,7 +61,7 @@ export function Dashboard({ project, feedback, needs, requirements, activities, 
               <Sparkles size={13} style={{ color: "#1E3A8A" }} /> {tr.dashboard.analyzeAI}
             </button>
             <button onClick={onOpenAddFeedback} className="flex items-center gap-2 px-3.5 py-2 rounded-2xl text-white hover:opacity-90 transition-all" style={{ background: "var(--primary)", fontSize: "13px", fontWeight: 500, border: "1.5px solid #60A5FA" }}>
-              <Plus size={14} /> Record Feedback
+              <Plus size={14} /> {tr.feedback.add}
             </button>
           </div>}
         </div>

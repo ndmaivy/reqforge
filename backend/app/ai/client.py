@@ -12,10 +12,12 @@ from pydantic import BaseModel, ValidationError
 
 from app.ai.prompts.feedback_analysis import SYSTEM_PROMPT as FEEDBACK_PROMPT
 from app.ai.prompts.requirement_generation import SYSTEM_PROMPT as GENERATION_PROMPT
+from app.ai.prompts.requirement_revision import SYSTEM_PROMPT as REVISION_PROMPT
 from app.ai.prompts.requirement_validation import SYSTEM_PROMPT as VALIDATION_PROMPT
 from app.ai.schemas import (
     FeedbackAnalysisOutput,
     RequirementGenerationOutput,
+    RequirementRevisionSuggestionOutput,
     RequirementValidationOutput,
 )
 from app.core.config import Settings
@@ -40,6 +42,11 @@ class AIClient(ABC):
     async def validate_requirement(
         self, context: dict[str, Any]
     ) -> RequirementValidationOutput: ...
+
+    async def create_requirement_revision(
+        self, context: dict[str, Any]
+    ) -> RequirementRevisionSuggestionOutput:
+        raise NotImplementedError
 
     async def close(self) -> None:
         return None
@@ -122,6 +129,20 @@ class StubAIClient(AIClient):
             }
         )
 
+    async def create_requirement_revision(
+        self, context: dict[str, Any]
+    ) -> RequirementRevisionSuggestionOutput:
+        selected = context["selected_issues"]
+        draft = context["requirement"]["description"]
+        additions = [
+            item.get("suggested_change")
+            for item in selected
+            if item.get("suggested_change")
+        ]
+        if additions:
+            draft = f"{draft.rstrip('.')} ({'; '.join(additions)})"
+        return RequirementRevisionSuggestionOutput(suggested_requirement=draft)
+
 
 class OpenAICompatibleClient(AIClient):
     def __init__(
@@ -148,6 +169,11 @@ class OpenAICompatibleClient(AIClient):
 
     async def validate_requirement(self, context: dict[str, Any]) -> RequirementValidationOutput:
         return await self._complete(VALIDATION_PROMPT, context, RequirementValidationOutput)
+
+    async def create_requirement_revision(
+        self, context: dict[str, Any]
+    ) -> RequirementRevisionSuggestionOutput:
+        return await self._complete(REVISION_PROMPT, context, RequirementRevisionSuggestionOutput)
 
     async def _complete(
         self, system_prompt: str, context: dict[str, Any], schema: type[OutputT]

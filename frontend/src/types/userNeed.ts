@@ -13,6 +13,10 @@ export interface UserNeedDto {
   confidence: number | string | null;
   created_at: string;
   updated_at: string;
+  evidence_count: number;
+  new_evidence_count: number;
+  latest_evidence_at: string | null;
+  requirement_count: number;
 }
 
 export interface FeedbackEvidenceDto {
@@ -22,6 +26,8 @@ export interface FeedbackEvidenceDto {
   feedback_date: string | null;
   status: "NEW" | "ANALYZED" | "ARCHIVED";
   relevance_score: number | string | null;
+  linked_at: string;
+  is_new: boolean;
 }
 
 export interface UserNeedDetailDto extends UserNeedDto {
@@ -60,4 +66,7 @@ export interface NeedTrendResponseDto {
 export interface UserNeedViewModel extends UserNeed {
   confidenceScore: number | null;
   evidenceCount: number;
+  newEvidenceCount: number;
+  latestEvidenceAt: string | null;
+  requirementCount: number;
 }

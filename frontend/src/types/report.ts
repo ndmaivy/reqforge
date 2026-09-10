@@ -106,6 +106,8 @@ export interface BaselineSummary {
   id: string;
   project_id: string;
   version: number;
+  name: string;
+  notes: string | null;
   created_at: string;
   created_by_id: string | null;
 }

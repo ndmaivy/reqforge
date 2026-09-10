@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, ForeignKey, Index, Integer, UniqueConstraint
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -20,6 +20,8 @@ class RequirementBaseline(CreatedAtMixin, Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     project_id: Mapped[UUID] = mapped_column(ForeignKey("projects.id"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
     snapshot: Mapped[dict[str, Any]] = mapped_column(JSON(), nullable=False)
     created_by_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
 

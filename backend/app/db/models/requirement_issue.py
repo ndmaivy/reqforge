@@ -35,6 +35,8 @@ class RequirementIssue(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[str | None] = mapped_column(Text)
     suggestion: Mapped[str | None] = mapped_column(Text)
+    suggested_change: Mapped[str | None] = mapped_column(Text)
+    suggested_requirement: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 4))
     status: Mapped[IssueStatus] = mapped_column(
         Enum(IssueStatus, name="issue_status"),

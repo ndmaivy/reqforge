@@ -50,6 +50,8 @@ export interface RequirementIssueDto {
   description: string;
   evidence: string | null;
   suggestion: string | null;
+  suggested_change: string | null;
+  suggested_requirement: string | null;
   confidence: number | string | null;
   status: "OPEN" | "RESOLVED" | "DISMISSED";
   source_analysis_run_id: string | null;
@@ -57,6 +59,13 @@ export interface RequirementIssueDto {
   resolved_by_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface RequirementRevisionSuggestionDto {
+  current_requirement: string;
+  suggested_requirement: string;
+  addressed_issues: string[];
+  conflict: string | null;
 }
 
 export interface RequirementDetailDto extends RequirementDto {

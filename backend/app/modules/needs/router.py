@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_session
@@ -11,6 +11,7 @@ from app.api.schemas import DataResponse, ListResponse, PageMeta
 from app.db.models import User, UserNeed
 from app.db.models.enums import UserNeedStatus
 from app.modules.needs.schemas import (
+    EvidenceReviewResponse,
     FeedbackEvidence,
     NeedTrendResponse,
     TrendGranularity,
@@ -25,9 +26,14 @@ analytics_router = APIRouter(prefix="/projects/{project_id}/analytics", tags=["A
 router = APIRouter(tags=["Needs"])
 
 
-def to_need_detail(need: UserNeed) -> UserNeedDetailResponse:
+def to_need_detail(
+    need: UserNeed, user_id: UUID, service: UserNeedService
+) -> UserNeedDetailResponse:
     feedback_links = need.feedback_links
     data = UserNeedResponse.model_validate(need).model_dump()
+    data.pop("evidence_count", None)
+    data.pop("new_evidence_count", None)
+    reviewed_at = service.evidence_review_timestamp(need.id, user_id)
     evidence = [
         FeedbackEvidence(
             id=link.feedback.id,
@@ -36,6 +42,8 @@ def to_need_detail(need: UserNeed) -> UserNeedDetailResponse:
             feedback_date=link.feedback.feedback_date,
             status=link.feedback.status,
             relevance_score=link.relevance_score,
+            linked_at=link.created_at,
+            is_new=reviewed_at is None or link.created_at > reviewed_at,
         )
         for link in feedback_links
     ]
@@ -77,7 +85,26 @@ def get_need(
     need = UserNeedService(session).get(
         need_id, with_evidence=True, project_id=project_id, user_id=current_user.id
     )
-    return DataResponse(data=to_need_detail(need))
+    return DataResponse(data=to_need_detail(need, current_user.id, UserNeedService(session)))
+
+
+@project_router.post(
+    "/{need_id}/evidence/mark-reviewed",
+    response_model=DataResponse[EvidenceReviewResponse],
+    summary="Mark user need evidence as reviewed for the current user",
+)
+def mark_evidence_reviewed(
+    project_id: UUID,
+    need_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> DataResponse[EvidenceReviewResponse]:
+    reviewed_at = UserNeedService(session).mark_evidence_reviewed(
+        project_id, need_id, current_user.id
+    )
+    return DataResponse(
+        data=EvidenceReviewResponse(need_id=need_id, last_reviewed_at=reviewed_at)
+    )
 
 
 @project_router.patch(
@@ -94,6 +121,21 @@ def update_need(
 ) -> DataResponse[UserNeedResponse]:
     need = UserNeedService(session).update(project_id, need_id, payload, current_user.id)
     return DataResponse(data=UserNeedResponse.model_validate(need))
+
+
+@project_router.delete(
+    "/{need_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an unreferenced user need",
+)
+def delete_need(
+    project_id: UUID,
+    need_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    UserNeedService(session).delete(project_id, need_id, current_user.id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @project_router.post(

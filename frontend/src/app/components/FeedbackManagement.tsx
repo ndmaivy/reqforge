@@ -49,13 +49,14 @@ interface FeedbackDetailProps {
   onClose: () => void;
   onArchive: () => void;
   onSave: (text: string, category: FeedbackCategory, isNoise: boolean) => Promise<void>;
-  onAnalyze: () => Promise<void>;
+  onAnalyze: () => void;
   similar: SimilarFeedbackDto[];
   similarLoading: boolean;
   readOnly: boolean;
+  onOpenNeed?: (needId: string) => void;
 }
 
-function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze, similar, similarLoading, readOnly }: FeedbackDetailProps) {
+function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze, similar, similarLoading, readOnly, onOpenNeed }: FeedbackDetailProps) {
   const { tr } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(item.text);
@@ -129,14 +130,13 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze, similar, 
             {editing ? <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={editIsNoise} onChange={(event) => setEditIsNoise(event.target.checked)} /> Mark as noise</label> : <span style={{ fontSize: "12px", fontWeight: 500, color: item.isNoise ? "#DC2626" : "#059669" }}>{item.isNoise ? tr.feedback.likelyNoise : tr.feedback.usefulSignal}</span>}
           </div>
 
-          {item.userNeedId && (
+          {item.groupedNeeds?.length ? (
             <div className="flex items-center justify-between">
-              <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{tr.feedback.linkedNeed}</span>
-              <span className="flex items-center gap-1" style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>
-                {item.userNeedId} <ExternalLink size={10} />
-              </span>
+              <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{tr.feedback.groupedNeed}</span>
+              <button onClick={() => onOpenNeed?.(item.groupedNeeds![0].needId)} className="flex items-center gap-1 text-right" style={{ fontSize: "12px", color: "#1E3A8A", fontWeight: 500 }}>{item.groupedNeeds[0].needTitle} <ExternalLink size={10} /></button>
             </div>
-          )}
+          ) : item.status === "Analyzed" ? <p style={{ fontSize: "11.5px", color: "#64748B" }}>{tr.feedback.noNeedFormed}</p> : null}
+          {item.groupedNeeds?.length ? <p className="text-right" style={{ fontSize: "10.5px", color: "#64748B" }}>{tr.feedback.groupedAt}: {new Date(item.groupedNeeds[0].linkedAt).toLocaleString()}</p> : null}
         </div>
 
         <div>
@@ -167,30 +167,26 @@ function FeedbackDetail({ item, onClose, onArchive, onSave, onAnalyze, similar, 
                 ? "This feedback was classified as noise — low value for requirement extraction."
                 : "Feedback was classified and grouped with similar records."}
             </p>
-            {item.userNeedId && (
+            {item.groupedNeeds?.length && (
               <button className="mt-2 flex items-center gap-1 hover:opacity-70 transition-opacity"
-                style={{ fontSize: "11.5px", color: "#1E3A8A", fontWeight: 500 }}>
-                <ExternalLink size={11} /> View linked User Need
+                onClick={() => onOpenNeed?.(item.groupedNeeds![0].needId)} style={{ fontSize: "11.5px", color: "#1E3A8A", fontWeight: 500 }}>
+                <ExternalLink size={11} /> {item.groupedNeeds[0].needTitle}
               </button>
             )}
           </div>
         ) : readOnly ? null : (
           <div className="rounded-lg p-3" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
             <p style={{ fontSize: "11.5px", color: "#92400E", marginBottom: "8px" }}>{tr.feedback.notAnalyzed}</p>
-            <button onClick={async () => {
-              if (analyzing) return;
-              setAnalyzing(true);
-              try { await onAnalyze(); } finally { setAnalyzing(false); }
-            }} disabled={analyzing} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white hover:opacity-90 disabled:opacity-60 transition-all"
+            <button onClick={onAnalyze} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white hover:opacity-90 transition-all"
               style={{ background: "#1E3A8A", fontSize: "12px", fontWeight: 500 }}>
-              {analyzing ? <Loader size={11} className="animate-spin" /> : <Sparkles size={11} />}
-              {analyzing ? tr.feedback.analyzing : tr.feedback.analyzeThis}
+              <Sparkles size={11} />
+              {tr.feedback.analyzeThis}
             </button>
           </div>
         )}
       </div>
 
-      {!readOnly && <div className="px-4 py-3 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
+      {!readOnly && item.status === "New" && <div className="px-4 py-3 border-t space-y-2" style={{ borderColor: "var(--border)" }}>
         {editing ? (
           <div className="flex gap-2">
             <button onClick={async () => {
@@ -276,11 +272,11 @@ function PublicLinkPanel({ project, onClose, canManage }: PublicLinkPanelProps) 
     catch (reason) { setError(getErrorMessage(reason, "Unable to update public form.")); } finally { setBusy(false); }
   };
 
-  const url = tokenForm?.public_url ?? "Generate or rotate the token to reveal a shareable link";
+  const url = tokenForm?.public_url ?? "Tạo hoặc xoay vòng mã để hiển thị liên kết chia sẻ";
   const handleCopy = () => { if (!tokenForm) return; navigator.clipboard.writeText(tokenForm.public_url).catch(() => {}); toast.success("Link copied"); };
 
   return (
-    <Modal title="Public Feedback Link" subtitle="Collect feedback directly from end users" onClose={onClose} width="480px">
+    <Modal title="Liên kết phản hồi công khai" subtitle="Thu thập phản hồi trực tiếp từ người dùng" onClose={onClose} width="480px">
       <div className="px-5 py-5 space-y-4">
         {loading ? <div className="flex justify-center py-8"><Loader className="animate-spin" /></div> : !form ? (
           <div className="rounded-xl border p-5 text-center" style={{ borderColor: "var(--border)" }}><p className="mb-3 text-sm text-slate-600">This project does not have a public feedback form yet.</p>{canManage && <button disabled={busy} onClick={() => void create()} className="rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Creating..." : "Create public form"}</button>}</div>
@@ -291,7 +287,7 @@ function PublicLinkPanel({ project, onClose, canManage }: PublicLinkPanelProps) 
             <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#374151" }}>Status</span>
             <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full" style={{ background: form.is_active ? "#ECFDF5" : "#F1F5F9", fontSize: "11px", fontWeight: 600, color: form.is_active ? "#059669" : "#64748B" }}>
               <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: form.is_active ? "#059669" : "#94A3B8" }} />
-              {form.is_active ? "Active" : "Disabled"}
+              {form.is_active ? "Đang bật" : "Đã tắt"}
             </span>
           </div>
           <div className="flex items-center gap-2 p-2.5 rounded-lg border" style={{ borderColor: "#BFDBFE", background: "#EFF6FF" }}>
@@ -312,12 +308,12 @@ function PublicLinkPanel({ project, onClose, canManage }: PublicLinkPanelProps) 
           </button>
           <button disabled={busy || !canManage} onClick={() => setConfirmDisable(true)} className="flex flex-col items-center gap-1.5 py-3 rounded-xl border hover:bg-red-50 disabled:opacity-50 transition-colors" style={{ borderColor: form.is_active ? "#FCA5A5" : "var(--border)" }}>
             <X size={16} style={{ color: form.is_active ? "#DC2626" : "#94A3B8" }} />
-            <span style={{ fontSize: "11.5px", fontWeight: 500, color: form.is_active ? "#DC2626" : "#64748B" }}>{form.is_active ? "Disable" : "Enable"}</span>
+            <span style={{ fontSize: "11.5px", fontWeight: 500, color: form.is_active ? "#DC2626" : "#64748B" }}>{form.is_active ? "Tắt" : "Bật"}</span>
           </button>
         </div>
 
         <p style={{ fontSize: "11.5px", color: "#94A3B8", lineHeight: 1.5 }}>
-          End users can submit feedback without a ReqForge account. Submissions appear in your Feedback Inbox with source "Public Feedback Form".
+          Người dùng có thể gửi phản hồi không cần tài khoản ReqForge. Phản hồi sẽ xuất hiện trong hộp thư với nguồn "Biểu mẫu phản hồi công khai".
         </p>
         {canManage && <button disabled={busy} onClick={() => void rotate()} className="w-full rounded-lg border py-2 text-xs font-semibold text-blue-900 disabled:opacity-50" style={{ borderColor: "#BFDBFE" }}>{tokenForm ? "Rotate link token" : "Generate a new shareable link"}</button>}
         </>}
@@ -326,9 +322,9 @@ function PublicLinkPanel({ project, onClose, canManage }: PublicLinkPanelProps) 
 
       {confirmDisable && (
         <ConfirmDialog
-          title={form?.is_active ? "Disable Public Feedback Link?" : "Enable Public Feedback Link?"}
-          message={form?.is_active ? "The form will stop accepting new submissions." : "The form will be ready to accept new submissions."}
-          confirmLabel={form?.is_active ? "Disable" : "Enable"}
+          title={form?.is_active ? "Tắt liên kết phản hồi công khai?" : "Bật liên kết phản hồi công khai?"}
+          message={form?.is_active ? "Biểu mẫu sẽ ngừng nhận phản hồi mới." : "Biểu mẫu sẽ sẵn sàng nhận phản hồi mới."}
+          confirmLabel={form?.is_active ? "Tắt" : "Bật"}
           confirmDanger={form?.is_active}
           onConfirm={() => void toggle()}
           onCancel={() => setConfirmDisable(false)}
@@ -347,23 +343,45 @@ interface AnalyzeModalProps {
   onClose: () => void;
   onRun: (payload: FeedbackAnalysisRequest, signal: AbortSignal) => Promise<AnalysisRunDto>;
   onViewNeeds?: () => void;
+  onOpenNeed?: (needId: string) => void;
 }
 
-function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onRun, onViewNeeds }: AnalyzeModalProps) {
+function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onRun, onViewNeeds, onOpenNeed }: AnalyzeModalProps) {
   const { tr } = useLanguage();
   const [step, setStep] = useState<"config" | "loading" | "done" | "error">("config");
   const [result, setResult] = useState({ analyzed: 0, needs: 0 });
+  const [mappings, setMappings] = useState<Array<{ feedbackId: string; needId?: string; needTitle?: string; outcome: string }>>([]);
   const [runError, setRunError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [sourceFilter, setSourceFilter] = useState(tr.feedback.allSources);
   const controllerRef = useRef<AbortController | null>(null);
-  const available = feedback.filter((item) => item.status !== "Archived");
+  const available = feedback.filter((item) => item.status === "New");
+  const visible = [...available]
+    .filter((item) => !search.trim() || item.text.toLowerCase().includes(search.toLowerCase()) || item.source.toLowerCase().includes(search.toLowerCase()))
+    .filter((item) => sourceFilter === tr.feedback.allSources || item.source === sourceFilter)
+    .sort((a, b) => {
+      const delta = new Date(b.createdAt ?? b.date).getTime() - new Date(a.createdAt ?? a.date).getTime();
+      return sortOrder === "newest" ? delta : -delta;
+    });
   const selected = available.filter((item) => selectedIds.has(item.id));
+  const maxSelection = 10;
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
   const toggle = (feedbackId: string) => {
     const next = new Set(selectedIds);
-    next.has(feedbackId) ? next.delete(feedbackId) : next.add(feedbackId);
+    if (next.has(feedbackId)) next.delete(feedbackId);
+    else if (next.size < maxSelection) next.add(feedbackId);
     onSelectedIdsChange(next);
+  };
+
+  const quickSelect = (count: number) => {
+    const ids = [...available]
+      .sort((a, b) => new Date(b.createdAt ?? b.date).getTime() - new Date(a.createdAt ?? a.date).getTime())
+      .slice(0, count)
+      .map((item) => item.id);
+    onSelectedIdsChange(new Set(ids));
   };
 
   const run = async () => {
@@ -381,6 +399,7 @@ function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onR
       const analyzed = output?.feedback_results?.length ?? selected.length;
       const needs = output?.candidate_needs?.length ?? 0;
       setResult({ analyzed, needs });
+      setMappings(Array.isArray(output?.feedback_mappings) ? output.feedback_mappings.map((item) => ({ feedbackId: String((item as Record<string, unknown>).feedback_id), needId: typeof (item as Record<string, unknown>).need_id === "string" ? String((item as Record<string, unknown>).need_id) : undefined, needTitle: typeof (item as Record<string, unknown>).need_title === "string" ? String((item as Record<string, unknown>).need_title) : undefined, outcome: String((item as Record<string, unknown>).outcome ?? "NO_NEED") })) : []);
       onSelectedIdsChange(new Set());
       setStep("done");
     } catch (error) {
@@ -404,17 +423,20 @@ function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onR
               {tr.feedback.analyzeDescription}
             </p>
             <div className="flex items-center justify-between gap-3">
-              <span style={{ fontSize: "12px", color: "#475569" }}>{tr.feedback.selectedForAnalysis(selected.length)}</span>
-              <div className="flex gap-2">
-                <button onClick={() => onSelectedIdsChange(new Set(available.map((item) => item.id)))} style={{ fontSize: "12px", color: "#1E3A8A" }}>{tr.feedback.selectAll}</button>
+              <span style={{ fontSize: "12px", color: "#475569" }}>{tr.feedback.selectionCounter(selected.length)}</span>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button onClick={() => quickSelect(5)} style={{ fontSize: "12px", color: "#1E3A8A" }}>{tr.feedback.quickFive}</button>
+                <button onClick={() => quickSelect(10)} style={{ fontSize: "12px", color: "#1E3A8A" }}>{tr.feedback.quickTen}</button>
                 <button onClick={() => onSelectedIdsChange(new Set())} style={{ fontSize: "12px", color: "#64748B" }}>{tr.feedback.clearSelection}</button>
               </div>
             </div>
+            <div className="flex gap-2"><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={tr.feedback.search} className="min-w-0 flex-1 rounded-md border px-3 py-2 text-xs outline-none" /><select value={sortOrder} onChange={(e) => setSortOrder(e.target.value as "newest" | "oldest")} className="rounded-md border px-2 text-xs"><option value="newest">{tr.feedback.newest}</option><option value="oldest">{tr.feedback.oldest}</option></select><select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} className="rounded-md border px-2 text-xs"><option>{tr.feedback.allSources}</option>{FEEDBACK_SOURCES.map((source) => <option key={source}>{source}</option>)}</select></div>
             <div className="max-h-72 overflow-y-auto rounded-lg border" style={{ borderColor: "var(--border)" }}>
-              {available.map((item) => <label key={item.id} className="flex cursor-pointer items-start gap-3 border-b px-3 py-3 last:border-b-0" style={{ borderColor: "#F1F5F9", background: selectedIds.has(item.id) ? "#EFF6FF" : "#fff" }}>
+              {visible.map((item) => <label key={item.id} className="flex cursor-pointer items-start gap-3 border-b px-3 py-3 last:border-b-0" style={{ borderColor: "#F1F5F9", background: selectedIds.has(item.id) ? "#EFF6FF" : "#fff" }}>
                 <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggle(item.id)} className="mt-1" />
                 <span className="min-w-0 flex-1"><span className="block line-clamp-2" style={{ fontSize: "12.5px", color: "#0F172A" }}>{item.text}</span><span className="mt-1 block" style={{ fontSize: "11px", color: "#64748B" }}>{item.source} · {item.date} · {tr.status[item.status]}</span></span>
               </label>)}
+              {!visible.length && <p className="px-3 py-6 text-center text-xs text-slate-500">{tr.feedback.noFeedback}</p>}
             </div>
           </div>
           <div className="flex gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
@@ -460,6 +482,7 @@ function AnalyzeModal({ feedback, selectedIds, onSelectedIdsChange, onClose, onR
             <p style={{ fontSize: "12px", color: "#64748B" }}>
               {tr.feedback.analysisCompletedHint}
             </p>
+            {mappings.length > 0 && <div className="space-y-2"><p className="text-xs font-semibold text-slate-700">{tr.feedback.analysisResult}</p>{mappings.map((mapping) => { const source = feedback.find((item) => item.id === mapping.feedbackId); return <div key={mapping.feedbackId} className="rounded-lg border p-2.5 text-xs" style={{ borderColor: "#E2E8F0" }}><p className="line-clamp-1 text-slate-700">{source?.text ?? mapping.feedbackId}</p>{mapping.needId ? <button onClick={() => onOpenNeed?.(mapping.needId!)} className="mt-1 text-left font-medium text-blue-800 hover:underline">→ {mapping.needTitle} · {mapping.outcome === "MATCH_EXISTING" ? tr.feedback.matchedExisting : tr.feedback.createdNew}</button> : <p className="mt-1 text-slate-500">{tr.feedback.noNeedFormed}</p>}</div>; })}</div>}
           </div>
           <div className="flex gap-2 px-5 py-4 border-t" style={{ borderColor: "var(--border)" }}>
             <button onClick={onClose} className="px-4 py-2 rounded-md border hover:bg-gray-50"
@@ -503,22 +526,26 @@ interface FeedbackManagementProps {
   onLoadSimilarFeedback: (feedbackId: string) => Promise<SimilarFeedbackDto[]>;
   onSaveFeedback: (feedbackId: string, content: string, category: FeedbackCategory, isNoise: boolean) => Promise<FeedbackItem>;
   onArchiveFeedback: (feedbackId: string) => Promise<FeedbackItem>;
+  onDeleteFeedback: (feedbackId: string) => Promise<void>;
+  onOpenNeed?: (needId: string) => void;
   onAnalyzeFeedback: (payload: FeedbackAnalysisRequest, signal?: AbortSignal) => Promise<AnalysisRunDto>;
   onNavigate?: (screen: string) => void;
   showAddModal?: boolean;
   showImportModal?: boolean;
   showPublicLinkModal?: boolean;
+  showAnalyzeModal?: boolean;
   onCloseAddModal?: () => void;
   onCloseImportModal?: () => void;
   onClosePublicLinkModal?: () => void;
+  onCloseAnalyzeModal?: () => void;
 }
 
 export function FeedbackManagement({
   project, feedback, loading, loadError, onRetry,
-  onRecordFeedback, onImportFeedback, onLoadFeedbackDetail, onLoadSimilarFeedback, onSaveFeedback, onArchiveFeedback,
+  onRecordFeedback, onImportFeedback, onLoadFeedbackDetail, onLoadSimilarFeedback, onSaveFeedback, onArchiveFeedback, onDeleteFeedback, onOpenNeed,
   onAnalyzeFeedback, onNavigate,
-  showAddModal = false, showImportModal = false, showPublicLinkModal = false,
-  onCloseAddModal, onCloseImportModal, onClosePublicLinkModal,
+  showAddModal = false, showImportModal = false, showPublicLinkModal = false, showAnalyzeModal = false,
+  onCloseAddModal, onCloseImportModal, onClosePublicLinkModal, onCloseAnalyzeModal,
 }: FeedbackManagementProps) {
   const { tr } = useLanguage();
   const canEdit = project.currentUserRole !== "VIEWER" && project.status !== "Archived";
@@ -526,18 +553,29 @@ export function FeedbackManagement({
   const [categoryFilter, setCategoryFilter] = useState("All Categories");
   const [sourceFilter, setSourceFilter] = useState("All Sources");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [feedbackTab, setFeedbackTab] = useState<"active" | "archived">("active");
   const [selected, setSelected] = useState<FeedbackItem | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<FeedbackItem | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<FeedbackItem | null>(null);
 
   const [localShowRecord, setLocalShowRecord] = useState(false);
   const [localShowImport, setLocalShowImport] = useState(false);
-  const [showAnalyze, setShowAnalyze] = useState(false);
+  const [localShowAnalyze, setLocalShowAnalyze] = useState(false);
   const [showPublicLink, setShowPublicLink] = useState(false);
   const [analysisSelection, setAnalysisSelection] = useState<Set<string>>(new Set());
+  const [openActionMenu, setOpenActionMenu] = useState<string | null>(null);
   const [similarFeedback, setSimilarFeedback] = useState<SimilarFeedbackDto[]>([]);
   const [similarLoading, setSimilarLoading] = useState(false);
+
+  useEffect(() => {
+    setAnalysisSelection((current) => {
+      const allowed = new Set(feedback.filter((item) => item.status === "New").map((item) => item.id));
+      const next = new Set([...current].filter((id) => allowed.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [feedback]);
 
   const [importStep, setImportStep] = useState<"idle" | "uploading" | "done">("idle");
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -548,6 +586,7 @@ export function FeedbackManagement({
   const showRecord = showAddModal || localShowRecord;
   const showImport = showImportModal || localShowImport;
   const showPublicLinkVisible = showPublicLink || showPublicLinkModal;
+  const showAnalyze = localShowAnalyze || showAnalyzeModal;
   const closeRecord = () => { setLocalShowRecord(false); onCloseAddModal?.(); setRecordForm(emptyRecord()); setRecordError(""); setRecordSubmitError(null); };
   const closeImport = () => {
     setLocalShowImport(false);
@@ -577,10 +616,9 @@ export function FeedbackManagement({
 
   const filtered = useMemo(() => {
     let list = [...feedback];
+    list = list.filter((f) => feedbackTab === "archived" ? f.status === "Archived" : f.status !== "Archived");
     if (statusFilter === "New") list = list.filter((f) => f.status === "New");
     else if (statusFilter === "Analyzed") list = list.filter((f) => f.status === "Analyzed");
-    else if (statusFilter === "Archived") list = list.filter((f) => f.status === "Archived");
-    else list = list.filter((f) => f.status !== "Archived");
 
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -588,8 +626,12 @@ export function FeedbackManagement({
     }
     if (categoryFilter !== "All Categories") list = list.filter((f) => f.category === categoryFilter);
     if (sourceFilter !== "All Sources") list = list.filter((f) => f.source === sourceFilter);
-    return list;
-  }, [feedback, search, categoryFilter, sourceFilter, statusFilter]);
+    return list.sort((a, b) => {
+      const statusOrder = { New: 0, Analyzed: 1, Archived: 2 };
+      return statusOrder[a.status] - statusOrder[b.status]
+        || new Date(b.createdAt ?? b.date).getTime() - new Date(a.createdAt ?? a.date).getTime();
+    });
+  }, [feedback, search, categoryFilter, sourceFilter, statusFilter, feedbackTab]);
 
   const parseFeedbackDate = (value: string): string | null => {
     const trimmed = value.trim();
@@ -653,26 +695,14 @@ export function FeedbackManagement({
     }
   };
 
-  const handleAnalyzeSingle = async (item: FeedbackItem) => {
-    const toastId = toast.loading(`Analyzing ${item.id}...`);
-    try {
-      await onAnalyzeFeedback({ mode: "SELECTED", feedback_ids: [item.id] });
-      const refreshed = await onLoadFeedbackDetail(item.id);
-      setSelected(refreshed);
-      toast.success(`${item.id} analyzed`, { id: toastId });
-    } catch (error) {
-      toast.error(getErrorMessage(error, tr.feedback.analysisError), { id: toastId });
-      throw error;
-    }
+  const requestAnalyzeSingle = (item: FeedbackItem) => {
+    if (item.status !== "New" || !canEdit) return;
+    setAnalysisSelection(new Set([item.id]));
+    setLocalShowAnalyze(true);
   };
 
   const openAnalyzeModal = () => {
-    if (!analysisSelection.size) {
-      setAnalysisSelection(
-        new Set(feedback.filter((item) => item.status === "New").map((item) => item.id)),
-      );
-    }
-    setShowAnalyze(true);
+    setLocalShowAnalyze(true);
   };
 
   const toggleAnalysisSelection = (feedbackId: string) => {
@@ -756,13 +786,18 @@ export function FeedbackManagement({
               { label: tr.status.Analyzed, value: analyzedCount, color: "#059669", bg: "#ECFDF5", filter: "Analyzed" },
               { label: tr.status.Archived, value: archivedCount, color: "#64748B", bg: "#F1F5F9", filter: "Archived" },
             ].map((s) => (
-              <button key={s.label} onClick={() => setStatusFilter(s.filter)}
-                className="rounded-xl border p-3.5 text-left transition-all hover:shadow-sm"
-                style={{ background: statusFilter === s.filter ? s.bg : "var(--card)", borderColor: statusFilter === s.filter ? s.color + "44" : "var(--border)" }}>
+              <div key={s.label}
+                className="rounded-xl border p-3.5"
+                style={{ background: "var(--card)", borderColor: "var(--border)" }}>
                 <p style={{ fontSize: "24px", fontWeight: 700, color: s.color, letterSpacing: "-0.04em", lineHeight: 1 }}>{s.value}</p>
                 <p style={{ fontSize: "11.5px", color: "#64748B", marginTop: "3px" }}>{s.label}</p>
-              </button>
+              </div>
             ))}
+          </div>
+
+          <div className="mb-4 flex items-center gap-1 border-b" style={{ borderColor: "var(--border)" }}>
+            <button onClick={() => { setFeedbackTab("active"); setStatusFilter("All"); }} className="px-3 py-2" style={{ color: feedbackTab === "active" ? "#1E3A8A" : "#64748B", borderBottom: feedbackTab === "active" ? "2px solid #1E3A8A" : "2px solid transparent", fontSize: "12.5px", fontWeight: 600 }}>{tr.feedback.activeTab}</button>
+            <button onClick={() => { setFeedbackTab("archived"); setStatusFilter("All"); }} className="px-3 py-2" style={{ color: feedbackTab === "archived" ? "#1E3A8A" : "#64748B", borderBottom: feedbackTab === "archived" ? "2px solid #1E3A8A" : "2px solid transparent", fontSize: "12.5px", fontWeight: 600 }}>{tr.feedback.archivedTab}</button>
           </div>
 
           {/* Filters */}
@@ -779,7 +814,7 @@ export function FeedbackManagement({
             <SimpleSelect value={categoryFilter}
               options={["All Categories", ...CATEGORIES]}
               onChange={setCategoryFilter} />
-            <SimpleSelect value={statusFilter} options={["All", "New", "Analyzed", "Archived"]} onChange={setStatusFilter} />
+            {feedbackTab === "active" && <SimpleSelect value={statusFilter} options={["All", "New", "Analyzed"]} onChange={setStatusFilter} />}
             <span style={{ fontSize: "11.5px", color: "#94A3B8", marginLeft: "auto" }}>{filtered.length} records</span>
           </div>
 
@@ -860,23 +895,31 @@ export function FeedbackManagement({
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <button
+                          {fb.status === "New" ? <button
                             role="switch"
                             aria-checked={analysisSelection.has(fb.id)}
-                            disabled={fb.status === "Archived"}
-                            aria-disabled={!canEdit || fb.status === "Archived"}
-                            onClick={(event) => { event.stopPropagation(); if (canEdit) toggleAnalysisSelection(fb.id); }}
+                            disabled={!canEdit || fb.status !== "New"}
+                            aria-disabled={!canEdit || fb.status !== "New"}
+                            onClick={(event) => { event.stopPropagation(); if (canEdit && fb.status === "New") toggleAnalysisSelection(fb.id); }}
                             className="relative h-5 w-9 rounded-full transition-colors disabled:opacity-40"
                             style={{ background: analysisSelection.has(fb.id) ? "#1E3A8A" : "#CBD5E1" }}
                             title={tr.feedback.selectForAnalysis}
                           >
                             <span className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all" style={{ left: analysisSelection.has(fb.id) ? "18px" : "2px" }} />
-                          </button>
+                          </button> : fb.status === "Analyzed" ? <span style={{ fontSize: "11px", color: "#059669", fontWeight: 600 }}>{tr.feedback.analyzedLabel}</span> : null}
                         </td>
                         <td className="px-4 py-3">
-                          {canEdit && <button onClick={(e) => { e.stopPropagation(); setArchiveTarget(fb); }}>
-                            <MoreHorizontal size={14} style={{ color: "#CBD5E1" }} />
-                          </button>}
+                          <div className="relative flex justify-end">
+                            <button aria-label={tr.feedback.moreActions} onClick={(e) => { e.stopPropagation(); setOpenActionMenu(openActionMenu === fb.id ? null : fb.id); }} className="rounded p-1.5 hover:bg-slate-100">
+                              <MoreHorizontal size={15} style={{ color: "#64748B" }} />
+                            </button>
+                            {openActionMenu === fb.id && <div className="absolute right-0 top-8 z-30 w-40 rounded-lg border bg-white py-1 shadow-lg" style={{ borderColor: "var(--border)" }} onClick={(e) => e.stopPropagation()}>
+                              <button onClick={() => { setOpenActionMenu(null); void handleOpenFeedback(fb); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-slate-50">{tr.feedback.viewDetails}</button>
+                              {canEdit && fb.status === "New" && <button onClick={() => { setOpenActionMenu(null); void handleOpenFeedback(fb); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-slate-50">{tr.common.edit}</button>}
+                              {canEdit && fb.status !== "Archived" && <button onClick={() => { setOpenActionMenu(null); setArchiveTarget(fb); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-slate-50">{tr.feedback.archive}</button>}
+                              {canEdit && <button onClick={() => { setOpenActionMenu(null); setDeleteTarget(fb); }} className="block w-full px-3 py-2 text-left text-xs text-red-600 hover:bg-red-50">{tr.common.delete}</button>}
+                            </div>}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -903,24 +946,25 @@ export function FeedbackManagement({
             const updated = await onSaveFeedback(selected.id, text, category, isNoise);
             setSelected(updated);
           }}
-          onAnalyze={() => handleAnalyzeSingle(selected)}
+          onAnalyze={() => requestAnalyzeSingle(selected)}
           similar={similarFeedback}
           similarLoading={similarLoading}
           readOnly={!canEdit}
+          onOpenNeed={onOpenNeed}
         />
       )}
 
       {/* Record Feedback Modal */}
       {showRecord && (
-        <Modal title="Record Feedback" subtitle="Log feedback collected from users or external sources" onClose={closeRecord} width="520px">
+        <Modal title="Ghi nhận phản hồi" subtitle="Ghi lại phản hồi thu thập từ người dùng hoặc nguồn bên ngoài" onClose={closeRecord} width="520px">
           <div className="px-5 py-5 space-y-4">
             <p style={{ fontSize: "12px", color: "#64748B", lineHeight: 1.5, padding: "10px 12px", background: "#F0F9FF", borderRadius: "8px", border: "1px solid #BAE6FD" }}>
-              Record feedback collected from users via interviews, surveys, support requests, usability tests, or other external sources.
+              Ghi lại phản hồi từ phỏng vấn, khảo sát, yêu cầu hỗ trợ, kiểm thử khả dụng hoặc nguồn bên ngoài khác.
             </p>
 
             <div>
               <label style={{ fontSize: "12.5px", fontWeight: 500, color: "#374151", display: "block", marginBottom: "5px" }}>
-                Feedback Content <span style={{ color: "#DC2626" }}>*</span>
+                Nội dung phản hồi <span style={{ color: "#DC2626" }}>*</span>
               </label>
               <textarea value={recordForm.text}
                 onChange={(e) => { setRecordForm(f => ({ ...f, text: e.target.value })); setRecordError(""); }}
@@ -1075,9 +1119,9 @@ export function FeedbackManagement({
           feedback={feedback}
           selectedIds={analysisSelection}
           onSelectedIdsChange={setAnalysisSelection}
-          onClose={() => setShowAnalyze(false)}
+          onClose={() => { setLocalShowAnalyze(false); onCloseAnalyzeModal?.(); }}
           onRun={onAnalyzeFeedback}
-          onViewNeeds={() => { setShowAnalyze(false); onNavigate?.("user-needs"); }}
+          onViewNeeds={() => { setLocalShowAnalyze(false); onCloseAnalyzeModal?.(); onNavigate?.("user-needs"); }}
         />
       )}
 
@@ -1093,9 +1137,9 @@ export function FeedbackManagement({
       {/* Archive Confirm */}
       {archiveTarget && (
         <ConfirmDialog
-          title="Archive this feedback?"
-          message={`"${archiveTarget.text.slice(0, 80)}..." will be moved to the archive.`}
-          confirmLabel="Archive"
+          title={tr.feedback.archiveTitle}
+          message={`${tr.feedback.archiveMsg} "${archiveTarget.text.slice(0, 80)}..."`}
+          confirmLabel={tr.feedback.archive}
           confirmDanger
           onConfirm={async () => {
             if (archiving) return;
@@ -1104,14 +1148,33 @@ export function FeedbackManagement({
               await onArchiveFeedback(archiveTarget.id);
               setArchiveTarget(null);
               if (selected?.id === archiveTarget.id) setSelected(null);
-              toast.success("Feedback archived");
+              toast.success(tr.feedback.archive);
             } catch (error) {
-              toast.error(getErrorMessage(error, "Unable to archive feedback."));
+              toast.error(getErrorMessage(error, tr.feedback.archive));
             } finally {
               setArchiving(false);
             }
           }}
           onCancel={() => setArchiveTarget(null)}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title={tr.feedback.deleteTitle}
+          message={tr.feedback.deleteMessage}
+          confirmLabel={tr.common.delete}
+          confirmDanger
+          onConfirm={async () => {
+            try {
+              await onDeleteFeedback(deleteTarget.id);
+              setDeleteTarget(null);
+              if (selected?.id === deleteTarget.id) setSelected(null);
+              toast.success(tr.feedback.deleted);
+            } catch (error) {
+              toast.error(getErrorMessage(error, tr.feedback.deleteError));
+            }
+          }}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>
