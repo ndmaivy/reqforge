@@ -119,6 +119,7 @@ def validate_requirement(
         current_user.id,
         idempotency_key,
         request.app.state.settings.analysis_max_attempts,
+        request.app.state.settings.validation_evidence_candidate_limit,
     )
     request.app.state.analysis_worker.wake()
     return _accepted(run, reused)

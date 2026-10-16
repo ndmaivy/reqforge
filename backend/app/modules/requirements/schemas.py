@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.models.enums import (
+    FeedbackStatus,
     GeneratedByType,
     IssueSeverity,
     IssueStatus,
@@ -15,6 +16,8 @@ from app.db.models.enums import (
     RequirementStatus,
     RequirementType,
     UserNeedStatus,
+    ValidationEvidenceOrigin,
+    ValidationEvidenceRelation,
 )
 
 
@@ -145,8 +148,24 @@ class RequirementEvidenceResponse(BaseModel):
     feedback: list[FeedbackEvidence]
 
 
+class RequirementValidationEvidenceResponse(BaseModel):
+    """Evidence captured by the latest completed requirement validation run."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    feedback_id: UUID
+    evidence_origin: ValidationEvidenceOrigin
+    retrieval_rank: int | None
+    retrieval_score: Decimal | None
+    validation_relation: ValidationEvidenceRelation | None
+    validation_rationale: str | None
+    feedback_status: FeedbackStatus
+    feedback_content: str
+
+
 class RequirementDetailResponse(RequirementResponse):
     needs: list[NeedEvidence]
     issues: list[RequirementIssueResponse]
     validation_outdated: bool
     latest_validation_run_id: UUID | None
+    validation_evidence: list[RequirementValidationEvidenceResponse] = Field(default_factory=list)

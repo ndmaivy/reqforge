@@ -73,6 +73,7 @@ export interface RequirementDetailDto extends RequirementDto {
   issues: RequirementIssueDto[];
   validation_outdated: boolean;
   latest_validation_run_id: string | null;
+  validation_evidence: RequirementValidationEvidenceDto[];
 }
 
 export interface RequirementCreateRequest {
@@ -113,6 +114,20 @@ export interface RequirementEvidenceDto {
   feedback: RequirementFeedbackEvidenceDto[];
 }
 
+export type ValidationEvidenceOriginDto = "GROUPING_EVIDENCE" | "VALIDATION_EVIDENCE";
+export type ValidationEvidenceRelationDto = "SUPPORTS" | "CONTRADICTS" | "IRRELEVANT";
+
+export interface RequirementValidationEvidenceDto {
+  feedback_id: string;
+  evidence_origin: ValidationEvidenceOriginDto;
+  retrieval_rank: number | null;
+  retrieval_score: number | string | null;
+  validation_relation: ValidationEvidenceRelationDto | null;
+  validation_rationale: string | null;
+  feedback_status: "NEW" | "ANALYZED" | "ARCHIVED";
+  feedback_content: string;
+}
+
 export interface RequirementViewModel extends Requirement {
   confidenceScore: number | null;
   sourceNeedIds: string[];
@@ -120,4 +135,5 @@ export interface RequirementViewModel extends Requirement {
   updatedAt: string;
   validationOutdated: boolean;
   latestValidationRunId: string | null;
+  validationEvidence: RequirementValidationEvidenceDto[];
 }

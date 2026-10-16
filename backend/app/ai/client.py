@@ -22,6 +22,7 @@ from app.ai.schemas import (
 )
 from app.core.config import Settings
 from app.core.exceptions import AIOutputValidationError, AIProviderError, AITimeoutError
+from app.db.models.enums import ValidationEvidenceRelation
 
 OutputT = TypeVar("OutputT", bound=BaseModel)
 logger = logging.getLogger(__name__)
@@ -126,6 +127,22 @@ class StubAIClient(AIClient):
                 "evidence_strength": "MEDIUM" if context["feedback"] else "LOW",
                 "review_priority": "HIGH" if issues else "LOW",
                 "issues": issues,
+                "evidence_assessments": [
+                    {
+                        "feedback_id": feedback_id,
+                        "relation": ValidationEvidenceRelation.IRRELEVANT,
+                        "rationale": (
+                            "The deterministic test adapter does not assess semantic evidence."
+                        ),
+                    }
+                    for feedback_id in dict.fromkeys(
+                        item["feedback_id"]
+                        for item in (
+                            context.get("grouping_evidence", [])
+                            + context.get("validation_evidence_candidates", [])
+                        )
+                    )
+                ],
             }
         )
 

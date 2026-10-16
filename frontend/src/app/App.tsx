@@ -277,6 +277,9 @@ function toUiRequirement(
     latestValidationRunId: "latest_validation_run_id" in requirement
       ? requirement.latest_validation_run_id
       : previous?.latestValidationRunId ?? null,
+    validationEvidence: "validation_evidence" in requirement && Array.isArray(requirement.validation_evidence)
+      ? requirement.validation_evidence
+      : previous?.validationEvidence ?? [],
   };
 }
 

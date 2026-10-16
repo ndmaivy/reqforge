@@ -24,6 +24,7 @@ from app.modules.requirements.schemas import (
     RequirementRevisionSuggestionRequest,
     RequirementRevisionSuggestionResponse,
     RequirementUpdate,
+    RequirementValidationEvidenceResponse,
 )
 from app.modules.requirements.service import RequirementService
 
@@ -102,6 +103,21 @@ def get_requirement(
         for link in requirement.need_links
     ]
     issues = [RequirementIssueResponse.model_validate(issue) for issue in requirement.issues]
+    validation_evidence = [
+        RequirementValidationEvidenceResponse(
+            feedback_id=link.feedback_id,
+            evidence_origin=link.evidence_origin,
+            retrieval_rank=link.retrieval_rank,
+            retrieval_score=link.retrieval_score,
+            validation_relation=link.validation_relation,
+            validation_rationale=link.validation_rationale,
+            feedback_status=feedback.status,
+            feedback_content=feedback.content,
+        )
+        for link, feedback in service.repository.latest_validation_evidence(
+            project_id, requirement.id
+        )
+    ]
     return DataResponse(
         data=RequirementDetailResponse(
             **data,
@@ -109,6 +125,7 @@ def get_requirement(
             issues=issues,
             validation_outdated=outdated,
             latest_validation_run_id=run_id,
+            validation_evidence=validation_evidence,
         )
     )
 

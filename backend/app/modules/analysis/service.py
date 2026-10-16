@@ -37,6 +37,7 @@ from app.modules.analysis.schemas import (
     FeedbackAnalysisRequest,
     RequirementGenerationRequest,
 )
+from app.modules.analysis.validation_evidence import RETRIEVAL_ALGORITHM_VERSION
 from app.modules.projects.service import ProjectService
 from app.modules.requirements.service import RequirementService
 
@@ -195,6 +196,7 @@ class AnalysisService:
         user_id: UUID,
         idempotency_key: str,
         max_attempts: int,
+        validation_evidence_candidate_limit: int = 10,
     ):
         requirement = RequirementService(self.session).get(
             requirement_id,
@@ -223,6 +225,8 @@ class AnalysisService:
                 "prompt_version": VALIDATION_PROMPT_VERSION,
                 "request_id": request_id,
                 "request": request_data,
+                "retrieval_algorithm_version": RETRIEVAL_ALGORITHM_VERSION,
+                "validation_evidence_candidate_limit": validation_evidence_candidate_limit,
             },
             idempotency_key,
             user_id,

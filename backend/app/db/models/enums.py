@@ -80,6 +80,17 @@ class IssueStatus(StrEnum):
     DISMISSED = "DISMISSED"
 
 
+class ValidationEvidenceOrigin(StrEnum):
+    GROUPING_EVIDENCE = "GROUPING_EVIDENCE"
+    VALIDATION_EVIDENCE = "VALIDATION_EVIDENCE"
+
+
+class ValidationEvidenceRelation(StrEnum):
+    SUPPORTS = "SUPPORTS"
+    CONTRADICTS = "CONTRADICTS"
+    IRRELEVANT = "IRRELEVANT"
+
+
 class AnalysisType(StrEnum):
     FEEDBACK_ANALYSIS = "FEEDBACK_ANALYSIS"
     NEED_EXTRACTION = "NEED_EXTRACTION"

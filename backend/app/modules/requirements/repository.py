@@ -7,11 +7,13 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.db.models import (
     AnalysisRun,
+    Feedback,
     FeedbackNeedLink,
     NeedRequirementLink,
     Requirement,
     RequirementIssue,
     UserNeed,
+    ValidationEvidenceLink,
 )
 from app.db.models.enums import (
     AnalysisStatus,
@@ -105,3 +107,29 @@ class RequirementRepository:
             if snapshot.get("requirement_id") == str(requirement_id):
                 return run
         return None
+
+    def latest_validation_evidence(
+        self, project_id: UUID, requirement_id: UUID
+    ) -> list[tuple[ValidationEvidenceLink, Feedback]]:
+        """Return evidence from the latest completed validation run only.
+
+        The run lookup deliberately reuses ``latest_validation_run`` so detail
+        responses cannot accidentally mix links from older validation runs.
+        """
+        run = self.latest_validation_run(project_id, requirement_id)
+        if run is None:
+            return []
+        statement = (
+            select(ValidationEvidenceLink, Feedback)
+            .join(Feedback, Feedback.id == ValidationEvidenceLink.feedback_id)
+            .where(
+                ValidationEvidenceLink.analysis_run_id == run.id,
+                ValidationEvidenceLink.requirement_id == requirement_id,
+            )
+            .order_by(
+                ValidationEvidenceLink.evidence_origin,
+                ValidationEvidenceLink.retrieval_rank.asc().nulls_last(),
+                ValidationEvidenceLink.feedback_id,
+            )
+        )
+        return list(self.session.execute(statement).all())

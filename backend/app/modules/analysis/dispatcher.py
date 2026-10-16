@@ -25,6 +25,7 @@ from app.db.models import (
     Requirement,
     RequirementIssue,
     UserNeed,
+    ValidationEvidenceLink,
 )
 from app.db.models.enums import (
     AnalysisStatus,
@@ -36,6 +37,12 @@ from app.db.models.enums import (
     IssueStatus,
     RequirementStatus,
     UserNeedStatus,
+    ValidationEvidenceOrigin,
+)
+from app.modules.analysis.validation_evidence import (
+    RETRIEVAL_ALGORITHM_VERSION,
+    RETRIEVAL_METHOD,
+    retrieve_validation_evidence,
 )
 from app.modules.needs.service import UserNeedService
 from app.modules.requirements.service import RequirementService
@@ -311,10 +318,68 @@ class AnalysisDispatcher:
         if requirement is None or requirement.project_id != run.project_id:
             raise CrossProjectReferenceError("Requirement does not belong to the analysis project")
         project = session.get(Project, run.project_id)
-        needs = [link.need for link in requirement.need_links]
-        feedback = {
-            link.feedback.id: link.feedback for need in needs for link in need.feedback_links
-        }
+        needs = sorted(
+            (link.need for link in requirement.need_links), key=lambda item: str(item.id)
+        )
+        grouping_links = [
+            feedback_link
+            for need in needs
+            for feedback_link in sorted(
+                need.feedback_links,
+                key=lambda item: (item.created_at, str(item.feedback_id)),
+            )
+        ]
+        candidates = retrieve_validation_evidence(
+            session,
+            run.project_id,
+            requirement,
+            needs,
+            int((run.input_snapshot or {}).get("validation_evidence_candidate_limit", 10)),
+        )
+        if any(
+            link.feedback.project_id != run.project_id for link in grouping_links
+        ) or any(candidate.feedback.project_id != run.project_id for candidate in candidates):
+            raise CrossProjectReferenceError(
+                "Validation evidence must belong to the analysis project"
+            )
+        grouping_evidence = [
+            {
+                "feedback_id": str(link.feedback.id),
+                "user_need_id": str(link.need.id),
+                "content": link.feedback.content,
+                "source": link.feedback.source,
+                "feedback_date": (
+                    link.feedback.feedback_date.isoformat()
+                    if link.feedback.feedback_date
+                    else None
+                ),
+                "linked_at": link.created_at.isoformat(),
+                "relevance_score": (
+                    str(link.relevance_score) if link.relevance_score is not None else None
+                ),
+            }
+            for link in grouping_links
+        ]
+        validation_candidates = [
+            {
+                "feedback_id": str(candidate.feedback.id),
+                "content": candidate.feedback.content,
+                "source": candidate.feedback.source,
+                "feedback_date": (
+                    candidate.feedback.feedback_date.isoformat()
+                    if candidate.feedback.feedback_date
+                    else None
+                ),
+                "retrieval_method": RETRIEVAL_METHOD,
+                "retrieval_rank": candidate.retrieval_rank,
+                "retrieval_score": str(candidate.retrieval_score),
+                "character_similarity_score": str(candidate.character_similarity_score),
+            }
+            for candidate in candidates
+        ]
+        grouping_feedback = {link.feedback.id: link.feedback for link in grouping_links}
+        candidate_feedback = {candidate.feedback.id: candidate.feedback for candidate in candidates}
+        feedback = {**grouping_feedback, **candidate_feedback}
         existing = list(
             session.scalars(
                 select(Requirement).where(
@@ -329,10 +394,70 @@ class AnalysisDispatcher:
             "requirement": self._requirement_data(requirement),
             "needs": [self._need_data(need) for need in needs],
             "feedback": [self._feedback_data(item) for item in feedback.values()],
+            "grouping_evidence": grouping_evidence,
+            "validation_evidence_candidates": validation_candidates,
             "existing_requirements": [self._requirement_data(item) for item in existing],
         }
-        run.input_snapshot = {**(run.input_snapshot or {}), "context": context}
+        run.input_snapshot = {
+            **(run.input_snapshot or {}),
+            "retrieval_algorithm_version": RETRIEVAL_ALGORITHM_VERSION,
+            "validation_evidence_candidate_limit": int(
+                (run.input_snapshot or {}).get("validation_evidence_candidate_limit", 10)
+            ),
+            "context": context,
+        }
+        for link in grouping_links:
+            session.add(
+                ValidationEvidenceLink(
+                    analysis_run_id=run.id,
+                    requirement_id=requirement.id,
+                    user_need_id=link.need.id,
+                    feedback_id=link.feedback.id,
+                    evidence_origin=ValidationEvidenceOrigin.GROUPING_EVIDENCE,
+                )
+            )
+        for candidate in candidates:
+            session.add(
+                ValidationEvidenceLink(
+                    analysis_run_id=run.id,
+                    requirement_id=requirement.id,
+                    feedback_id=candidate.feedback.id,
+                    evidence_origin=ValidationEvidenceOrigin.VALIDATION_EVIDENCE,
+                    retrieval_method=RETRIEVAL_METHOD,
+                    retrieval_rank=candidate.retrieval_rank,
+                    retrieval_score=candidate.retrieval_score,
+                    character_similarity_score=candidate.character_similarity_score,
+                )
+            )
         output = await self.ai_client.validate_requirement(context)
+        allowed_feedback_ids = set(grouping_feedback) | set(candidate_feedback)
+        assessments_by_id = {}
+        for assessment in output.evidence_assessments:
+            if assessment.feedback_id not in allowed_feedback_ids:
+                raise AIOutputValidationError(
+                    "AI returned a feedback id outside the validation evidence allowlist"
+                )
+            if assessment.feedback_id in assessments_by_id:
+                raise AIOutputValidationError(
+                    "AI returned duplicate validation evidence feedback ids"
+                )
+            assessments_by_id[assessment.feedback_id] = assessment
+        if set(assessments_by_id) != allowed_feedback_ids:
+            raise AIOutputValidationError(
+                "AI must classify every grouping and validation evidence feedback id"
+            )
+        session.flush()
+        persisted_links = list(
+            session.scalars(
+                select(ValidationEvidenceLink).where(
+                    ValidationEvidenceLink.analysis_run_id == run.id
+                )
+            )
+        )
+        for link in persisted_links:
+            assessment = assessments_by_id[link.feedback_id]
+            link.validation_relation = assessment.relation
+            link.validation_rationale = assessment.rationale
         self._reconcile_issues(session, requirement.id, run.id, output.issues)
         run.output_json = output.model_dump(mode="json")
 

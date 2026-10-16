@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: int = Field(default=30, ge=1, le=120)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
     feedback_analysis_batch_size: int = Field(default=10, ge=1, le=25)
+    validation_evidence_candidate_limit: int = Field(default=10, ge=1, le=100)
     analysis_worker_poll_seconds: float = Field(default=0.5, ge=0.05, le=30)
     analysis_stale_seconds: int = Field(default=300, ge=5, le=3600)
     analysis_max_attempts: int = Field(default=3, ge=1, le=10)

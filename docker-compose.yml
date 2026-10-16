@@ -25,6 +25,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      VALIDATION_EVIDENCE_CANDIDATE_LIMIT: ${VALIDATION_EVIDENCE_CANDIDATE_LIMIT:-10}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in the root .env file}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}

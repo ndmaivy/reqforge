@@ -12,7 +12,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import FeedbackNotFound, ImportFileError, InvalidStateTransition
-from app.db.models import Feedback, FeedbackNeedLink, FeedbackSimilarityLink
+from app.db.models import Feedback, FeedbackNeedLink, FeedbackSimilarityLink, ValidationEvidenceLink
 from app.db.models.enums import FeedbackStatus, ProjectRole
 from app.modules.feedback.normalizer import normalize_feedback_content
 from app.modules.feedback.repository import FeedbackRepository
@@ -193,6 +193,10 @@ class FeedbackService:
             )
         if self.session.scalar(
             select(FeedbackNeedLink).where(FeedbackNeedLink.feedback_id == feedback_id).limit(1)
+        ) is not None or self.session.scalar(
+            select(ValidationEvidenceLink)
+            .where(ValidationEvidenceLink.feedback_id == feedback_id)
+            .limit(1)
         ) is not None:
             raise InvalidStateTransition(
                 "Feedback used as evidence cannot be deleted; archive it instead"

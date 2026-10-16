@@ -11,6 +11,7 @@ import type {
   RequirementRevisionSuggestionDto,
   RequirementTypeDto,
   RequirementUpdateRequest,
+  RequirementValidationEvidenceDto,
   RequirementViewModel,
 } from "../../types/requirement";
 import type { UserNeedViewModel } from "../../types/userNeed";
@@ -91,6 +92,21 @@ function formatRequirementDate(value: string): string {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function formatRetrievalScore(value: number | string | null): string {
+  if (value === null) return "—";
+  const score = Number(value);
+  return Number.isFinite(score) ? score.toFixed(4) : String(value);
+}
+
+function feedbackStatusLabel(
+  status: RequirementValidationEvidenceDto["feedback_status"],
+  tr: ReturnType<typeof useLanguage>["tr"],
+): string {
+  if (status === "NEW") return tr.requirements.feedbackNewStatus;
+  if (status === "ANALYZED") return tr.requirements.feedbackAnalyzedStatus;
+  return tr.requirements.feedbackArchivedStatus;
 }
 
 interface ReqDetailProps {
@@ -187,6 +203,11 @@ function ReqDetail({
   const openHighIssues = validationIssues.filter((issue) => issue.severity === "HIGH" && issue.status === "OPEN");
   const openIssueCount = validationIssues.filter((issue) => issue.status === "OPEN").length;
   const issueCount = validationIssues.length;
+  const independentValidationEvidence = req.validationEvidence.filter(
+    (item: RequirementValidationEvidenceDto) =>
+      item.evidence_origin === "VALIDATION_EVIDENCE"
+      && (item.validation_relation === "SUPPORTS" || item.validation_relation === "CONTRADICTS"),
+  );
 
   const rejectReasons = [
     "Incorrect interpretation",
@@ -689,7 +710,58 @@ function ReqDetail({
                         </div>
                       )}
 
-                      {/* Section D — Validation Findings */}
+                      {/* Section D — Independently retrieved validation evidence */}
+                      <div className="rounded-lg p-4" style={{ background: "#F8FAFC", border: "1px solid var(--border)" }}>
+                        <div className="flex items-start justify-between gap-3 mb-3">
+                          <div>
+                            <p style={{ fontSize: "11px", fontWeight: 600, color: "#94A3B8", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                              {tr.requirements.validationEvidenceTitle}
+                            </p>
+                            <p style={{ fontSize: "11px", color: "#64748B", marginTop: "3px" }}>
+                              {tr.requirements.validationEvidenceHint}
+                            </p>
+                          </div>
+                          {independentValidationEvidence.length > 0 && (
+                            <span className="rounded-full px-2 py-0.5" style={{ background: "#E0F2FE", color: "#0369A1", fontSize: "10px", fontWeight: 700 }}>
+                              {independentValidationEvidence.length}
+                            </span>
+                          )}
+                        </div>
+                        {independentValidationEvidence.length === 0 ? (
+                          <p style={{ fontSize: "12px", color: "#94A3B8" }}>{tr.requirements.noValidationEvidence}</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {independentValidationEvidence.map((item) => {
+                              const supports = item.validation_relation === "SUPPORTS";
+                              return (
+                                <div key={`${item.feedback_id}-${item.evidence_origin}`} className="rounded-md border p-3" style={{ background: "#FFF", borderColor: supports ? "#BAE6FD" : "#FED7AA" }}>
+                                  <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                    <span className="rounded-full px-2 py-0.5" style={{ background: supports ? "#ECFEFF" : "#FFF7ED", color: supports ? "#0E7490" : "#C2410C", fontSize: "10px", fontWeight: 700 }}>
+                                      {supports ? tr.requirements.validationEvidenceSupports : tr.requirements.validationEvidenceContradicts}
+                                    </span>
+                                    <span style={{ fontSize: "10.5px", color: "#64748B" }}>
+                                      {tr.requirements.retrievalRank}: {item.retrieval_rank ?? "—"} · {tr.requirements.retrievalScore}: {formatRetrievalScore(item.retrieval_score)}
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: "12.5px", color: "#1E293B", lineHeight: 1.55 }}>{item.feedback_content}</p>
+                                  <div className="mt-2 flex items-center gap-2 flex-wrap" style={{ fontSize: "10.5px", color: "#64748B" }}>
+                                    <span>{tr.requirements.feedbackStatus}: {feedbackStatusLabel(item.feedback_status, tr)}</span>
+                                    <span style={{ color: "#CBD5E1" }}>•</span>
+                                    <span>{tr.requirements.validationEvidenceHint}</span>
+                                  </div>
+                                  {item.validation_rationale && (
+                                    <p className="mt-2 rounded-md px-2.5 py-2" style={{ background: "#F8FAFC", color: "#475569", fontSize: "11.5px", lineHeight: 1.5 }}>
+                                      <strong>{tr.requirements.validationRationale}:</strong> {item.validation_rationale}
+                                    </p>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Section E — Validation Findings */}
                       <div>
                         <div className="flex items-center gap-2 mb-2.5">
                           <AlertTriangle
