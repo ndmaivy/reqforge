@@ -1,5 +1,6 @@
 import { apiRequest } from "./api";
 import type { DataResponse, ListResponse } from "./api";
+import type { ReviewDecisionEventDto } from "../types/reviewDecision";
 import type {
   RequirementCreateRequest,
   RequirementDetailDto,
@@ -50,6 +51,18 @@ export async function getRequirement(
     `${projectRequirementsPath(projectId)}/${encodeURIComponent(requirementId)}`,
   );
   return response.data;
+}
+
+export async function listRequirementReviewDecisions(
+  projectId: string,
+  requirementId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<ListResponse<ReviewDecisionEventDto>> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  return apiRequest<ListResponse<ReviewDecisionEventDto>>(
+    `${projectRequirementsPath(projectId)}/${encodeURIComponent(requirementId)}/review-decisions?${params}`,
+  );
 }
 
 export async function createRequirement(

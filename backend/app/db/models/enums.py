@@ -91,6 +91,18 @@ class ValidationEvidenceRelation(StrEnum):
     IRRELEVANT = "IRRELEVANT"
 
 
+class ReviewSubjectType(StrEnum):
+    USER_NEED = "USER_NEED"
+    REQUIREMENT = "REQUIREMENT"
+
+
+class ReviewDecision(StrEnum):
+    CONFIRMED = "CONFIRMED"
+    REJECTED = "REJECTED"
+    APPROVED = "APPROVED"
+    REOPENED = "REOPENED"
+
+
 class AnalysisType(StrEnum):
     FEEDBACK_ANALYSIS = "FEEDBACK_ANALYSIS"
     NEED_EXTRACTION = "NEED_EXTRACTION"

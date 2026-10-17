@@ -1,5 +1,6 @@
 import { apiRequest } from "./api";
 import type { DataResponse, ListResponse } from "./api";
+import type { ReviewDecisionEventDto } from "../types/reviewDecision";
 import type {
   NeedTrendGranularity,
   NeedTrendResponseDto,
@@ -44,6 +45,18 @@ export async function getNeed(projectId: string, needId: string): Promise<UserNe
     `${projectNeedsPath(projectId)}/${encodeURIComponent(needId)}`,
   );
   return response.data;
+}
+
+export async function listNeedReviewDecisions(
+  projectId: string,
+  needId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<ListResponse<ReviewDecisionEventDto>> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  return apiRequest<ListResponse<ReviewDecisionEventDto>>(
+    `${projectNeedsPath(projectId)}/${encodeURIComponent(needId)}/review-decisions?${params}`,
+  );
 }
 
 export async function markNeedEvidenceReviewed(projectId: string, needId: string): Promise<void> {

@@ -23,6 +23,8 @@ from app.db.models.enums import (
     RequirementSourceType,
     RequirementStatus,
     RequirementType,
+    ReviewDecision,
+    ReviewSubjectType,
     UserNeedStatus,
 )
 from app.modules.projects.service import ProjectService
@@ -32,6 +34,7 @@ from app.modules.requirements.schemas import (
     RequirementCreate,
     RequirementUpdate,
 )
+from app.modules.review_decisions.service import ReviewDecisionService, snapshot_requirement
 
 
 class RequirementService:
@@ -172,12 +175,27 @@ class RequirementService:
         )
         if requirement.status is not RequirementStatus.APPROVED:
             raise InvalidStateTransition("Only approved requirements can be reopened")
+        proposal_snapshot = snapshot_requirement(requirement)
+        previous_status = requirement.status.value
         requirement.status = RequirementStatus.NEEDS_REVIEW
         requirement.updated_at = datetime.now(UTC)
         requirement.acknowledged_outdated_validation = False
         requirement.acknowledged_open_high_issues = False
         requirement.reviewed_by_id = None
         requirement.reviewed_at = None
+        ReviewDecisionService.record(
+            self.session,
+            project_id=requirement.project_id,
+            subject_type=ReviewSubjectType.REQUIREMENT,
+            subject_id=requirement.id,
+            decision=ReviewDecision.REOPENED,
+            previous_status=previous_status,
+            new_status=requirement.status.value,
+            reviewer_id=user_id,
+            source_analysis_run_id=requirement.source_analysis_run_id,
+            ai_confidence_snapshot=requirement.confidence,
+            proposal_snapshot=proposal_snapshot,
+        )
         self.session.commit()
         self.session.refresh(requirement)
         return requirement
@@ -202,13 +220,21 @@ class RequirementService:
         requirement.acknowledged_outdated_validation = outdated
         requirement.acknowledged_open_high_issues = has_open_high
         requirement.review_note = payload.review_note
-        return self._transition(requirement, RequirementStatus.APPROVED, user_id)
+        return self._transition(
+            requirement,
+            RequirementStatus.APPROVED,
+            user_id,
+            ReviewDecision.APPROVED,
+            payload.review_note,
+        )
 
     def reject(self, project_id: UUID, requirement_id: UUID, user_id: UUID) -> Requirement:
         requirement = self.get(
             requirement_id, project_id=project_id, user_id=user_id, minimum_role=ProjectRole.EDITOR
         )
-        return self._transition(requirement, RequirementStatus.REJECTED, user_id)
+        return self._transition(
+            requirement, RequirementStatus.REJECTED, user_id, ReviewDecision.REJECTED
+        )
 
     def archive(self, project_id: UUID, requirement_id: UUID, user_id: UUID) -> Requirement:
         requirement = self.get(
@@ -222,15 +248,36 @@ class RequirementService:
         return requirement
 
     def _transition(
-        self, requirement: Requirement, target: RequirementStatus, user_id: UUID
+        self,
+        requirement: Requirement,
+        target: RequirementStatus,
+        user_id: UUID,
+        decision: ReviewDecision,
+        review_note: str | None = None,
     ) -> Requirement:
         if requirement.status is not RequirementStatus.NEEDS_REVIEW:
             raise InvalidStateTransition(
                 "Only requirements awaiting review can be approved or rejected"
             )
+        proposal_snapshot = snapshot_requirement(requirement)
+        previous_status = requirement.status.value
         requirement.status = target
         requirement.reviewed_by_id = user_id
         requirement.reviewed_at = datetime.now(UTC)
+        ReviewDecisionService.record(
+            self.session,
+            project_id=requirement.project_id,
+            subject_type=ReviewSubjectType.REQUIREMENT,
+            subject_id=requirement.id,
+            decision=decision,
+            previous_status=previous_status,
+            new_status=target.value,
+            reviewer_id=user_id,
+            source_analysis_run_id=requirement.source_analysis_run_id,
+            ai_confidence_snapshot=requirement.confidence,
+            proposal_snapshot=proposal_snapshot,
+            review_note=review_note,
+        )
         self.session.commit()
         self.session.refresh(requirement)
         return requirement

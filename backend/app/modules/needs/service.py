@@ -21,10 +21,19 @@ from app.db.models import (
     UserNeed,
     UserNeedEvidenceReview,
 )
-from app.db.models.enums import ProjectRole, UserNeedStatus
+from app.db.models.enums import (
+    ProjectRole,
+    ReviewDecision,
+    ReviewSubjectType,
+    UserNeedStatus,
+)
 from app.modules.needs.repository import UserNeedRepository
 from app.modules.needs.schemas import TrendClassification, TrendGranularity, UserNeedUpdate
 from app.modules.projects.service import ProjectService
+from app.modules.review_decisions.service import (
+    ReviewDecisionService,
+    snapshot_user_need,
+)
 
 
 class UserNeedService:
@@ -159,8 +168,23 @@ class UserNeedService:
         )
         if need.status is not UserNeedStatus.CANDIDATE:
             raise InvalidStateTransition("Only candidate user needs can be confirmed")
+        proposal_snapshot = snapshot_user_need(need)
+        previous_status = need.status.value
         need.status = UserNeedStatus.CONFIRMED
         need.reviewed_by_id = user_id
+        ReviewDecisionService.record(
+            self.session,
+            project_id=need.project_id,
+            subject_type=ReviewSubjectType.USER_NEED,
+            subject_id=need.id,
+            decision=ReviewDecision.CONFIRMED,
+            previous_status=previous_status,
+            new_status=need.status.value,
+            reviewer_id=user_id,
+            source_analysis_run_id=need.source_analysis_run_id,
+            ai_confidence_snapshot=need.confidence,
+            proposal_snapshot=proposal_snapshot,
+        )
         self.session.commit()
         self.session.refresh(need)
         return need
@@ -171,8 +195,23 @@ class UserNeedService:
         )
         if need.status is not UserNeedStatus.CANDIDATE:
             raise InvalidStateTransition("Only candidate user needs can be rejected")
+        proposal_snapshot = snapshot_user_need(need)
+        previous_status = need.status.value
         need.status = UserNeedStatus.REJECTED
         need.reviewed_by_id = user_id
+        ReviewDecisionService.record(
+            self.session,
+            project_id=need.project_id,
+            subject_type=ReviewSubjectType.USER_NEED,
+            subject_id=need.id,
+            decision=ReviewDecision.REJECTED,
+            previous_status=previous_status,
+            new_status=need.status.value,
+            reviewer_id=user_id,
+            source_analysis_run_id=need.source_analysis_run_id,
+            ai_confidence_snapshot=need.confidence,
+            proposal_snapshot=proposal_snapshot,
+        )
         self.session.commit()
         self.session.refresh(need)
         return need

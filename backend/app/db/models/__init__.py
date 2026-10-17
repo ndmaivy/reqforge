@@ -12,6 +12,7 @@ from app.db.models.public_feedback_form import PublicFeedbackForm
 from app.db.models.requirement import Requirement
 from app.db.models.requirement_baseline import RequirementBaseline
 from app.db.models.requirement_issue import RequirementIssue
+from app.db.models.review_decision_event import ReviewDecisionEvent
 from app.db.models.user import User
 from app.db.models.user_need import UserNeed
 from app.db.models.user_need_evidence_review import UserNeedEvidenceReview
@@ -30,6 +31,7 @@ __all__ = [
     "Requirement",
     "RequirementBaseline",
     "RequirementIssue",
+    "ReviewDecisionEvent",
     "User",
     "UserNeed",
     "UserNeedEvidenceReview",

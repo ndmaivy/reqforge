@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Search, Sparkles, AlertTriangle, CheckCircle, X, ChevronRight, Edit2, Loader, Info, ExternalLink, ChevronDown, Plus, Shield, FileText, BookOpen } from "lucide-react";
 import { toast } from "sonner";
-import type { RequirementStatus, RequirementType, RequirementSourceType, FeedbackItem } from "../data/mockData";
+import type { ConfidenceLevel, RequirementStatus, RequirementType, RequirementSourceType, FeedbackItem } from "../data/mockData";
 import type { AnalysisRunDto } from "../../types/analysis";
 import type {
   RequirementApprovalRequest,
@@ -19,6 +19,8 @@ import { getErrorMessage } from "../../services/api";
 import { Modal, ConfirmDialog } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
 import { useLanguage } from "../i18n/LanguageContext";
+import { ReviewHistory } from "./ReviewHistory";
+import { getConfidenceDisplay } from "../../utils/confidence";
 
 const statusCfg: Record<RequirementStatus, { bg: string; text: string; dot: string }> = {
   Draft: { bg: "#F1F5F9", text: "#64748B", dot: "#64748B" },
@@ -51,6 +53,10 @@ const sourceCfg: Record<RequirementSourceType, { label: string; bg: string; text
 };
 
 const REQ_TYPES: RequirementType[] = ["Functional", "Usability", "Interaction", "Accessibility", "Non-functional"];
+
+function confidenceLabel(level: ConfidenceLevel, tr: ReturnType<typeof useLanguage>["tr"]): string {
+  return level === "N/A" ? "N/A" : tr.common[level.toLowerCase() as "high" | "medium" | "low"];
+}
 
 function issueTypeLabel(type: string, tr: ReturnType<typeof useLanguage>["tr"]): string {
   const labels: Record<string, string> = {
@@ -110,6 +116,7 @@ function feedbackStatusLabel(
 }
 
 interface ReqDetailProps {
+  projectId: string;
   req: RequirementViewModel;
   needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
@@ -128,6 +135,7 @@ interface ReqDetailProps {
   onRetryIssues: () => Promise<void>;
   onCreateRevisionSuggestion: (issueIds: string[]) => Promise<RequirementRevisionSuggestionDto>;
   onValidate: (signal: AbortSignal) => Promise<AnalysisRunDto>;
+  reviewHistoryRefreshToken: number;
   readOnly: boolean;
 }
 
@@ -136,6 +144,7 @@ type ValidationStatus = "idle" | "running" | "complete" | "outdated" | "error";
 
 // ─── ReqDetail component ───────────────────────────────────────────────────────
 function ReqDetail({
+  projectId,
   req,
   needs,
   feedback,
@@ -154,6 +163,7 @@ function ReqDetail({
   onRetryIssues,
   onCreateRevisionSuggestion,
   onValidate,
+  reviewHistoryRefreshToken,
   readOnly,
 }: ReqDetailProps) {
   const { tr } = useLanguage();
@@ -197,6 +207,7 @@ function ReqDetail({
   // Derived
   const sc = statusCfg[req.status];
   const tc = typeCfg[req.type];
+  const confidence = getConfidenceDisplay(req.confidenceScore);
   const sourceNeed = needs.find((n) => n.id === req.sourceNeedId);
   const evidenceFeedbackIds = new Set(evidence?.feedback.map((item) => item.id) ?? []);
   const supportingFb = feedback.filter((item) => evidenceFeedbackIds.has(item.id)).slice(0, 3);
@@ -481,6 +492,7 @@ function ReqDetail({
               {[
                 { label: tr.requirements.type, value: requirementTypeLabel(req.type, tr) },
                 { label: tr.requirements.status, value: (tr.status as Record<string, string>)[req.status] ?? req.status },
+                { label: tr.requirements.confidence, value: confidence.percentage === null ? "N/A" : `${confidenceLabel(confidence.level, tr)} (${confidence.percentage}%)` },
                 { label: tr.requirements.sourceLabel, value: sourceCfg[req.sourceType ?? 'AI_FROM_USER_NEED']?.label ?? req.sourceType },
                 ...(req.sourceType === "AI_FROM_USER_NEED" || !req.sourceType ? [{
                   label: tr.requirements.sourceNeedLabel,
@@ -948,11 +960,16 @@ function ReqDetail({
                                           {issue.suggestion}
                                         </p>
                                       )}
-                                      {issue.confidence !== null && (
-                                        <p style={{ fontSize: "11.5px", color: "#64748B" }}>
-                                          {tr.requirements.confidence}: {Math.round(Number(issue.confidence) * 100)}%
-                                        </p>
-                                      )}
+                                      {(() => {
+                                        const issueConfidence = getConfidenceDisplay(issue.confidence);
+                                        return (
+                                          <p style={{ fontSize: "11.5px", color: "#64748B" }}>
+                                            {tr.requirements.confidence}: {issueConfidence.percentage === null
+                                              ? "N/A"
+                                              : `${confidenceLabel(issueConfidence.level, tr)} (${issueConfidence.percentage}%)`}
+                                          </p>
+                                        );
+                                      })()}
                                       {!readOnly && !isClosed && (
                                         <div className="flex gap-2 pt-1 flex-wrap">
                                           {issue.suggested_requirement && !req.validationOutdated && issue.source_analysis_run_id === req.latestValidationRunId && (
@@ -1026,6 +1043,12 @@ function ReqDetail({
                 </>
               )}
             </div>
+            <ReviewHistory
+              projectId={projectId}
+              subjectId={req.id}
+              subjectType="REQUIREMENT"
+              refreshToken={reviewHistoryRefreshToken}
+            />
           </div>
         </div>
       </div>
@@ -1203,6 +1226,7 @@ function ReqDetail({
 }
 
 interface RequirementsProps {
+  projectId: string;
   requirements: RequirementViewModel[];
   needs: UserNeedViewModel[];
   feedback: FeedbackItem[];
@@ -1242,6 +1266,7 @@ interface RequirementsProps {
 }
 
 export function Requirements({
+  projectId,
   requirements,
   needs,
   feedback,
@@ -1278,6 +1303,7 @@ export function Requirements({
   const [generating, setGenerating] = useState(false);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [busyRequirementId, setBusyRequirementId] = useState<string | null>(null);
+  const [reviewHistoryRefreshToken, setReviewHistoryRefreshToken] = useState(0);
   const [validationIssues, setValidationIssues] = useState<RequirementIssueDto[]>([]);
   const [requirementEvidence, setRequirementEvidence] = useState<RequirementEvidenceDto | null>(null);
   const [issuesLoading, setIssuesLoading] = useState(false);
@@ -1457,7 +1483,9 @@ export function Requirements({
     if (busyRequirementId) throw new Error("Another requirement action is in progress");
     setBusyRequirementId(requirementId);
     try {
-      return await onReopenRequirement(requirementId);
+      const updated = await onReopenRequirement(requirementId);
+      setReviewHistoryRefreshToken((current) => current + 1);
+      return updated;
     } finally {
       setBusyRequirementId(null);
     }
@@ -1472,6 +1500,7 @@ export function Requirements({
     try {
       const updated = await onApproveRequirement(requirementId, payload);
       if (selected?.id === requirementId) setSelected(updated);
+      setReviewHistoryRefreshToken((current) => current + 1);
       return true;
     } catch (error) {
       toast.error(getErrorMessage(error, tr.requirements.approveError));
@@ -1523,6 +1552,7 @@ export function Requirements({
     try {
       const updated = await onRejectRequirement(requirementId);
       if (selected?.id === requirementId) setSelected(updated);
+      setReviewHistoryRefreshToken((current) => current + 1);
       return true;
     } catch (error) {
       toast.error(getErrorMessage(error, tr.requirements.rejectError));
@@ -1535,6 +1565,7 @@ export function Requirements({
   if (selected) {
     return (
             <ReqDetail
+        projectId={projectId}
         req={selected}
         needs={needs}
         feedback={feedback}
@@ -1561,6 +1592,7 @@ export function Requirements({
               onRetryIssues={() => refreshIssues(selected.id)}
               onCreateRevisionSuggestion={(issueIds) => onCreateRevisionSuggestion(selected.id, issueIds)}
         onValidate={validateSelected}
+        reviewHistoryRefreshToken={reviewHistoryRefreshToken}
         readOnly={readOnly}
       />
     );
@@ -1605,7 +1637,7 @@ export function Requirements({
           <SimpleSelect value={statusFilter} options={[tr.requirements.allStatuses, tr.status.Draft, tr.requirements.needsReview, tr.status.Approved, tr.status.Rejected, tr.status.Archived]} onChange={setStatusFilter} />
           <SimpleSelect value={typeFilter} options={[tr.requirements.allTypes, ...REQ_TYPES]} onChange={setTypeFilter} />
           <SimpleSelect value={sourceFilter} options={["All Sources", "AI from User Need", "Stakeholder", "Existing Specification", "Security Policy", "Compliance", "SLA / Technical", "Manual"]} onChange={setSourceFilter} />
-          <SimpleSelect value={confFilter} options={[tr.requirements.allConfidence, "High", "Medium", "Low"]} onChange={setConfFilter} />
+            <SimpleSelect value={confFilter} options={[tr.requirements.allConfidence, "High", "Medium", "Low", "N/A"]} onChange={setConfFilter} />
           <span style={{ fontSize: "11.5px", color: "#94A3B8" }}>{filtered.length} reqs</span>
         </div>
 

@@ -101,6 +101,7 @@ import type {
   RequirementViewModel,
   RequirementRevisionSuggestionDto,
 } from "../types/requirement";
+import { getConfidenceDisplay } from "../utils/confidence";
 
 type Screen = "dashboard" | "feedback" | "user-needs" | "requirements" | "analysis" | "reports" | "settings";
 
@@ -202,12 +203,7 @@ function toUiNeed(
   evidenceCount = need.evidence_count,
   trend?: string,
 ): UserNeedViewModel {
-  const score = need.confidence === null ? null : Number(need.confidence);
-  const confidence = score !== null && score >= 0.8
-    ? "High"
-    : score !== null && score >= 0.5
-      ? "Medium"
-      : "Low";
+  const { score, level: confidence } = getConfidenceDisplay(need.confidence);
 
   return {
     id: need.id,
@@ -216,7 +212,7 @@ function toUiNeed(
     description: need.description,
     status: need.status === "CONFIRMED" ? "Confirmed" : need.status === "REJECTED" ? "Rejected" : "Candidate",
     confidence,
-    confidenceScore: Number.isFinite(score) ? score : null,
+    confidenceScore: score,
     feedbackIds: [],
     evidenceCount,
     newEvidenceCount: need.new_evidence_count,
@@ -246,7 +242,7 @@ function toUiRequirement(
   requirement: RequirementDto | RequirementDetailDto,
   previous?: RequirementViewModel,
 ): RequirementViewModel {
-  const score = requirement.confidence === null ? null : Number(requirement.confidence);
+  const { score, level: confidence } = getConfidenceDisplay(requirement.confidence);
   const sourceNeedIds = "needs" in requirement
     ? requirement.needs.map((need) => need.id)
     : previous?.sourceNeedIds ?? [];
@@ -261,8 +257,8 @@ function toUiRequirement(
     description: requirement.description,
     type: requirementTypes[requirement.type],
     status: requirementStatuses[requirement.status],
-    confidence: score !== null && score >= 0.8 ? "High" : score !== null && score >= 0.5 ? "Medium" : "Low",
-    confidenceScore: Number.isFinite(score) ? score : null,
+    confidence,
+    confidenceScore: score,
     issueCount,
     sourceNeedId: sourceNeedIds[0],
     sourceNeedIds,
@@ -960,6 +956,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
 
           {activeScreen === "user-needs" && (
             <UserNeeds
+              projectId={proj.id}
               needs={projectNeeds}
               requirements={projectRequirements}
               loading={needsLoading}
@@ -980,6 +977,7 @@ function ReqForgeApp({ user, onLogout }: { user: AuthUser; onLogout: () => void 
 
           {activeScreen === "requirements" && (
             <Requirements
+              projectId={proj.id}
               requirements={projectRequirements}
               needs={projectNeeds}
               feedback={projectFeedback}

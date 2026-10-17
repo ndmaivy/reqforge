@@ -12,6 +12,7 @@ import { getErrorMessage } from "../../services/api";
 import { ConfirmDialog, Modal } from "./Modal";
 import { SimpleSelect } from "./SimpleSelect";
 import { useLanguage } from "../i18n/LanguageContext";
+import { ReviewHistory } from "./ReviewHistory";
 
 const statusCfg: Record<NeedStatus, { bg: string; text: string }> = {
   Candidate: { bg: "#EFF6FF", text: "#1E3A8A" },
@@ -23,7 +24,12 @@ const confCfg: Record<ConfidenceLevel, { color: string }> = {
   High: { color: "#059669" },
   Medium: { color: "#D97706" },
   Low: { color: "#DC2626" },
+  "N/A": { color: "#64748B" },
 };
+
+function confidenceLabel(level: ConfidenceLevel, tr: ReturnType<typeof useLanguage>["tr"]): string {
+  return level === "N/A" ? "N/A" : tr.common[level.toLowerCase() as "high" | "medium" | "low"];
+}
 
 interface NeedDetailProps {
   need: UserNeedViewModel;
@@ -40,6 +46,8 @@ interface NeedDetailProps {
   onReviewSourceFeedback: () => void;
   onMarkEvidenceReviewed: () => Promise<void>;
   readOnly: boolean;
+  projectId: string;
+  reviewHistoryRefreshToken: number;
 }
 
 function feedbackStatusLabel(
@@ -74,7 +82,7 @@ function SourceFeedbackModal({ feedback, onClose }: SourceFeedbackModalProps) {
   );
 }
 
-function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave, onReviewSourceFeedback, onMarkEvidenceReviewed, readOnly }: NeedDetailProps) {
+function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requirements, onClose, onRetryDetail, onConfirm, onReject, onSave, onReviewSourceFeedback, onMarkEvidenceReviewed, readOnly, projectId, reviewHistoryRefreshToken }: NeedDetailProps) {
   const { tr, lang } = useLanguage();
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(need.title);
@@ -100,7 +108,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="px-2 py-0.5 rounded-md" style={{ background: sc.bg, color: sc.text, fontSize: "11px", fontWeight: 600 }}>{tr.status[need.status]}</span>
-            <span style={{ fontSize: "11.5px", fontWeight: 600, color: cc.color }}>{tr.userNeeds.confidence}: {tr.common[need.confidence.toLowerCase() as "high" | "medium" | "low"]}</span>
+            <span style={{ fontSize: "11.5px", fontWeight: 600, color: cc.color }}>{tr.userNeeds.confidence}: {confidenceLabel(need.confidence, tr)}</span>
         </div>
         {editing ? (
           <>
@@ -204,6 +212,12 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
             </div>
           )}
         </div>
+        <ReviewHistory
+          projectId={projectId}
+          subjectId={need.id}
+          subjectType="USER_NEED"
+          refreshToken={reviewHistoryRefreshToken}
+        />
       </div>
 
       {/* Actions */}
@@ -250,6 +264,7 @@ function NeedDetail({ need, detail, detailLoading, detailError, actionBusy, requ
 }
 
 interface UserNeedsProps {
+  projectId: string;
   needs: UserNeedViewModel[];
   requirements: Requirement[];
   loading: boolean;
@@ -268,6 +283,7 @@ interface UserNeedsProps {
 }
 
 export function UserNeeds({
+  projectId,
   needs,
   requirements,
   loading,
@@ -297,6 +313,7 @@ export function UserNeeds({
   const [deleteTarget, setDeleteTarget] = useState<UserNeedViewModel | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [navigationHighlightId, setNavigationHighlightId] = useState<string | null>(null);
+  const [reviewHistoryRefreshToken, setReviewHistoryRefreshToken] = useState(0);
   const detailRequestId = useRef(0);
 
   const selected = selectedId ? needs.find((need) => need.id === selectedId) ?? null : null;
@@ -354,6 +371,7 @@ export function UserNeeds({
     try {
       await onConfirmNeed(needId);
       setDetail((current) => current?.id === needId ? { ...current, status: "CONFIRMED" } : current);
+      setReviewHistoryRefreshToken((current) => current + 1);
       toast.success(tr.userNeeds.confirmedSuccess);
       return true;
     } catch (error) {
@@ -370,7 +388,7 @@ export function UserNeeds({
     try {
       await onRejectNeed(needId);
       setDetail((current) => current?.id === needId ? { ...current, status: "REJECTED" } : current);
-      setSelectedId(null);
+      setReviewHistoryRefreshToken((current) => current + 1);
       toast.success(tr.userNeeds.rejectedSuccess);
       return true;
     } catch (error) {
@@ -502,7 +520,7 @@ export function UserNeeds({
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <Sparkles size={10} style={{ color: "#1E3A8A" }} />
-                        <span style={{ fontSize: "11.5px", fontWeight: 600, color: cc.color }}>{tr.userNeeds.confidence}: {tr.common[need.confidence.toLowerCase() as "high" | "medium" | "low"]}</span>
+                        <span style={{ fontSize: "11.5px", fontWeight: 600, color: cc.color }}>{tr.userNeeds.confidence}: {confidenceLabel(need.confidence, tr)}</span>
                       </div>
                     </div>
                     <h3 style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--foreground)", marginBottom: "5px", lineHeight: 1.3 }}>{need.title}</h3>
@@ -556,6 +574,8 @@ export function UserNeeds({
           onReviewSourceFeedback={() => setShowSourceFeedback(true)}
           onMarkEvidenceReviewed={async () => { await onMarkEvidenceReviewed(selected.id); await loadDetail(selected.id); }}
           readOnly={readOnly}
+          projectId={projectId}
+          reviewHistoryRefreshToken={reviewHistoryRefreshToken}
         />
       )}
       {showSourceFeedback && selected && detail?.id === selected.id && (

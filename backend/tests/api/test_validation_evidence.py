@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from itertools import cycle
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -102,6 +103,7 @@ def test_validation_snapshots_grouping_and_independent_evidence(client):
         session.flush()
         session.add(NeedRequirementLink(need_id=need.id, requirement_id=requirement.id))
         session.add(FeedbackNeedLink(feedback_id=UUID(grouped_id), need_id=need.id))
+        session.add(FeedbackNeedLink(feedback_id=UUID(archived_id), need_id=need.id))
         session.commit()
         need_id = need.id
 
@@ -147,12 +149,22 @@ def test_validation_snapshots_grouping_and_independent_evidence(client):
         for link in first_links
         if link.evidence_origin.value == "VALIDATION_EVIDENCE"
     }
-    assert grouping_ids == {UUID(grouped_id)}
+    assert grouping_ids == {UUID(grouped_id), UUID(archived_id)}
     assert {UUID(grouped_id), UUID(new_id)}.issubset(validation_ids)
     assert UUID(archived_id) not in validation_ids
     assert any(
         link.feedback_id == UUID(grouped_id)
         and link.evidence_origin.value == "GROUPING_EVIDENCE"
+        for link in first_links
+    )
+    assert any(
+        link.feedback_id == UUID(archived_id)
+        and link.evidence_origin.value == "GROUPING_EVIDENCE"
+        for link in first_links
+    )
+    assert any(
+        link.feedback_id == UUID(new_id)
+        and link.evidence_origin.value == "VALIDATION_EVIDENCE"
         for link in first_links
     )
     assert all(link.validation_relation is not None for link in first_links)
@@ -192,7 +204,10 @@ def test_validation_snapshots_grouping_and_independent_evidence(client):
                 ValidationEvidenceLink.evidence_origin == "GROUPING_EVIDENCE",
             )
         )
-    assert {link.feedback_id for link in old_grouping} == {UUID(grouped_id)}
+    assert {link.feedback_id for link in old_grouping} == {
+        UUID(grouped_id),
+        UUID(archived_id),
+    }
 
 
 class InvalidEvidenceAI(StubAIClient):
@@ -211,7 +226,7 @@ class InvalidEvidenceAI(StubAIClient):
 class ClassifiedEvidenceAI(StubAIClient):
     async def validate_requirement(self, context: dict[str, Any]):
         output = await super().validate_requirement(context)
-        relations = iter(
+        relations = cycle(
             (
                 ValidationEvidenceRelation.SUPPORTS,
                 ValidationEvidenceRelation.CONTRADICTS,
@@ -222,6 +237,13 @@ class ClassifiedEvidenceAI(StubAIClient):
             assessment.model_copy(update={"relation": next(relations)})
             for assessment in output.evidence_assessments
         ]
+        return output
+
+
+class MissingEvidenceAssessmentAI(StubAIClient):
+    async def validate_requirement(self, context: dict[str, Any]):
+        output = await super().validate_requirement(context)
+        output.evidence_assessments = output.evidence_assessments[:-1]
         return output
 
 
@@ -243,3 +265,17 @@ def test_invalid_ai_feedback_id_fails_validation_run_and_persists_no_snapshot(cl
             )
         )
     assert links == []
+
+
+def test_missing_evidence_assessment_fails_validation_run(client):
+    project_id = _create_project(client)
+    _create_feedback(client, project_id, "The reminder schedule should be previewable.")
+    requirement_id = _create_requirement(client, project_id)
+    missing_client = MissingEvidenceAssessmentAI()
+    client.app.state.ai_client = missing_client
+    client.app.state.analysis_dispatcher.ai_client = missing_client
+
+    run = _start_validation(client, project_id, requirement_id)
+
+    assert run["status"] == "FAILED"
+    assert "must classify every" in run["error_message"]

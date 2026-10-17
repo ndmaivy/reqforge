@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
 from app.db.models import User, UserNeed
-from app.db.models.enums import UserNeedStatus
+from app.db.models.enums import ReviewSubjectType, UserNeedStatus
 from app.modules.needs.schemas import (
     EvidenceReviewResponse,
     FeedbackEvidence,
@@ -20,6 +20,8 @@ from app.modules.needs.schemas import (
     UserNeedUpdate,
 )
 from app.modules.needs.service import UserNeedService
+from app.modules.review_decisions.schemas import ReviewDecisionEventResponse
+from app.modules.review_decisions.service import ReviewDecisionService
 
 project_router = APIRouter(prefix="/projects/{project_id}/needs", tags=["Needs"])
 analytics_router = APIRouter(prefix="/projects/{project_id}/analytics", tags=["Analytics"])
@@ -86,6 +88,35 @@ def get_need(
         need_id, with_evidence=True, project_id=project_id, user_id=current_user.id
     )
     return DataResponse(data=to_need_detail(need, current_user.id, UserNeedService(session)))
+
+
+@project_router.get(
+    "/{need_id}/review-decisions",
+    response_model=ListResponse[ReviewDecisionEventResponse],
+    summary="List user need review decision history",
+)
+def list_need_review_decisions(
+    project_id: UUID,
+    need_id: UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ListResponse[ReviewDecisionEventResponse]:
+    service = UserNeedService(session)
+    service.get(need_id, project_id=project_id, user_id=current_user.id)
+    items, total = ReviewDecisionService.list_for_subject(
+        session,
+        project_id=project_id,
+        subject_type=ReviewSubjectType.USER_NEED,
+        subject_id=need_id,
+        page=page,
+        page_size=page_size,
+    )
+    return ListResponse(
+        data=[ReviewDecisionEventResponse.model_validate(item) for item in items],
+        meta=PageMeta(page=page, page_size=page_size, total=total),
+    )
 
 
 @project_router.post(

@@ -10,7 +10,12 @@ from app.api.dependencies import get_current_user, get_session
 from app.api.schemas import DataResponse, ListResponse, PageMeta
 from app.core.exceptions import InvalidStateTransition, RequirementIssueNotFound
 from app.db.models import Project, RequirementIssue, User
-from app.db.models.enums import IssueStatus, RequirementStatus, RequirementType
+from app.db.models.enums import (
+    IssueStatus,
+    RequirementStatus,
+    RequirementType,
+    ReviewSubjectType,
+)
 from app.modules.analysis.dispatcher import AnalysisDispatcher
 from app.modules.requirements.schemas import (
     FeedbackEvidence,
@@ -27,6 +32,8 @@ from app.modules.requirements.schemas import (
     RequirementValidationEvidenceResponse,
 )
 from app.modules.requirements.service import RequirementService
+from app.modules.review_decisions.schemas import ReviewDecisionEventResponse
+from app.modules.review_decisions.service import ReviewDecisionService
 
 project_router = APIRouter(prefix="/projects/{project_id}/requirements", tags=["Requirements"])
 router = APIRouter(tags=["Requirements"])
@@ -127,6 +134,35 @@ def get_requirement(
             latest_validation_run_id=run_id,
             validation_evidence=validation_evidence,
         )
+    )
+
+
+@project_router.get(
+    "/{requirement_id}/review-decisions",
+    response_model=ListResponse[ReviewDecisionEventResponse],
+    summary="List requirement review decision history",
+)
+def list_requirement_review_decisions(
+    project_id: UUID,
+    requirement_id: UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> ListResponse[ReviewDecisionEventResponse]:
+    service = RequirementService(session)
+    service.get(requirement_id, project_id=project_id, user_id=current_user.id)
+    items, total = ReviewDecisionService.list_for_subject(
+        session,
+        project_id=project_id,
+        subject_type=ReviewSubjectType.REQUIREMENT,
+        subject_id=requirement_id,
+        page=page,
+        page_size=page_size,
+    )
+    return ListResponse(
+        data=[ReviewDecisionEventResponse.model_validate(item) for item in items],
+        meta=PageMeta(page=page, page_size=page_size, total=total),
     )
 
 
